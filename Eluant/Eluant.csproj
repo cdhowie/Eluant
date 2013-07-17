@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProductVersion>10.0.0</ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{D4CFD952-4EDC-421D-84A5-998688815124}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Eluant</RootNamespace>
+    <AssemblyName>Eluant</AssemblyName>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug</OutputPath>
+    <DefineConstants>DEBUG;</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <ConsolePause>false</ConsolePause>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>none</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release</OutputPath>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <ConsolePause>false</ConsolePause>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.cs" />
+    <Compile Include="LuaApi.cs" />
+    <Compile Include="LuaRuntime.cs" />
+    <Compile Include="LuaString.cs" />
+    <Compile Include="LuaNumber.cs" />
+    <Compile Include="LuaBoolean.cs" />
+    <Compile Include="LuaNil.cs" />
+    <Compile Include="LuaTable.cs" />
+    <Compile Include="LuaFunction.cs" />
+    <Compile Include="LuaValueExtensions.cs" />
+    <Compile Include="LuaVararg.cs" />
+    <Compile Include="LuaException.cs" />
+    <Compile Include="LuaLightUserdata.cs" />
+    <Compile Include="LuaOpaqueClrObjectReference.cs" />
+    <Compile Include="LuaOpaqueClrObject.cs" />
+    <Compile Include="LuaUserdata.cs" />
+    <Compile Include="Scripts.cs" />
+    <Compile Include="LuaReference.cs" />
+    <Compile Include="LuaValueType.cs" />
+    <Compile Include="LuaValue.cs" />
+    <Compile Include="LuaWeakReference.cs" />
+    <Compile Include="MemoryConstrainedLuaRuntime.cs" />
+    <Compile Include="LuaNumberOperators.cs">
+      <DependentUpon>LuaNumberOperators.tt</DependentUpon>
+    </Compile>
+    <Compile Include="LuaThread.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
+  <ItemGroup>
+    <EmbeddedResource Include="BindingSupport.lua" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="LuaNumberOperators.tt">
+      <Generator>TextTemplatingFileGenerator</Generator>
+      <LastGenOutput>LuaNumberOperators.cs</LastGenOutput>
+    </None>
+  </ItemGroup>
+</Project>

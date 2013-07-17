@@ -1,0 +1,7 @@
+bin
+obj
+*.userprefs
+*.usertasks
+*.suo
+*.swp
+test-results

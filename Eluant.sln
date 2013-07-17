@@ -1,0 +1,48 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Eluant", "Eluant\Eluant.csproj", "{D4CFD952-4EDC-421D-84A5-998688815124}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Eluant.Tests", "Eluant.Tests\Eluant.Tests.csproj", "{F1850D5C-48D6-4D42-AC85-072E706030BF}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D4CFD952-4EDC-421D-84A5-998688815124}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4CFD952-4EDC-421D-84A5-998688815124}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4CFD952-4EDC-421D-84A5-998688815124}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4CFD952-4EDC-421D-84A5-998688815124}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F1850D5C-48D6-4D42-AC85-072E706030BF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F1850D5C-48D6-4D42-AC85-072E706030BF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F1850D5C-48D6-4D42-AC85-072E706030BF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F1850D5C-48D6-4D42-AC85-072E706030BF}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(MonoDevelopProperties) = preSolution
+		StartupItem = Eluant\Eluant.csproj
+		Policies = $0
+		$0.TextStylePolicy = $1
+		$1.FileWidth = 120
+		$1.NoTabsAfterNonTabs = True
+		$1.inheritsSet = VisualStudio
+		$1.inheritsScope = text/plain
+		$1.scope = text/x-csharp
+		$0.CSharpFormattingPolicy = $2
+		$2.IndentSwitchBody = True
+		$2.BeforeMethodDeclarationParentheses = False
+		$2.BeforeMethodCallParentheses = False
+		$2.BeforeConstructorDeclarationParentheses = False
+		$2.BeforeDelegateDeclarationParentheses = False
+		$2.NewParentheses = False
+		$2.inheritsSet = Mono
+		$2.inheritsScope = text/x-csharp
+		$2.scope = text/x-csharp
+		$0.TextStylePolicy = $3
+		$3.NoTabsAfterNonTabs = True
+		$3.inheritsSet = VisualStudio
+		$3.inheritsScope = text/plain
+		$3.scope = text/plain
+	EndGlobalSection
+EndGlobal

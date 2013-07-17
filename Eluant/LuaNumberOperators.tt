@@ -1,0 +1,31 @@
+﻿<#@ template language="C#v3.5" #>
+using System;
+
+namespace Eluant
+{
+    public partial class LuaNumber
+    {
+<#
+    foreach (var op in new string[][] {
+        new[] { "+", "double?" },
+        new[] { "-", "double?" },
+        new[] { "*", "double?" },
+        new[] { "/", "double?" },
+        new[] { "%", "double?" },
+        new[] { "==", "bool"},
+        new[] { "!=", "bool"},
+        new[] { "<=", "bool"},
+        new[] { ">=", "bool"},
+        new[] { "<", "bool" },
+        new[] { ">", "bool" }}) {
+#>
+        public static <#=op[1]#> operator<#=op[0]#>(LuaNumber a, double? b)
+        {
+            return (double?)a <#=op[0]#> b;
+        }
+        
+<#
+    }
+#>
+    }
+}
