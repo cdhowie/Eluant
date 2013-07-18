@@ -226,7 +226,7 @@ namespace Eluant
 
         public static string lua_tostring(IntPtr L, int index)
         {
-            UIntPtr len;
+            UIntPtr len = UIntPtr.Zero;
 
             var stringPtr = lua_tolstring(L, index, ref len);
             if (stringPtr == IntPtr.Zero) {
