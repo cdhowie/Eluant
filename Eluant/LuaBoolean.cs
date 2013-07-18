@@ -78,6 +78,11 @@ namespace Eluant
             return Get(v);
         }
 
+        public static explicit operator bool?(LuaBoolean v)
+        {
+            return v == null ? (bool?)null : v.Value;
+        }
+
         public static bool operator==(LuaBoolean a, LuaBoolean b)
         {
             if (object.ReferenceEquals(a, b)) { return true; }
