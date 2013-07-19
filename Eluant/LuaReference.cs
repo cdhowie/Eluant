@@ -78,6 +78,13 @@ namespace Eluant
 
         public override int GetHashCode()
         {
+            // If the reference has been disposed then this object is not equal to any other reference object.  To make
+            // sure that GetHashCode()'s contract is upheld in the face of possible reference ID reuse, we have to throw
+            // an exception if the object was disposed.
+            //
+            // (Protip: Don't dispose LuaReference objects that are used as keys in dictionaries!)
+            CheckDisposed();
+
             return Reference;
         }
 
@@ -86,11 +93,22 @@ namespace Eluant
             return Equals(obj as LuaReference);
         }
 
-        public bool Equals(LuaReference r)
+        // References are easy -- if the reference ID is the same, the objects are equal.
+        public virtual bool Equals(LuaReference r)
         {
+            if (r == this) { return true; }
             if (r == null) { return false; }
 
+            // But if the reference has been disposed, the reference ID could be reused!  So a disposed reference is
+            // never equal to anything but itself (which we already checked).
+            if (Runtime == null || r.Runtime == null) { return false; }
+
             return Reference == r.Reference;
+        }
+
+        public override bool Equals(LuaValue other)
+        {
+            return Equals(other as LuaReference);
         }
     }
 }

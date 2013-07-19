@@ -59,6 +59,7 @@
       <DependentUpon>LuaNumberOperators.tt</DependentUpon>
     </Compile>
     <Compile Include="LuaThread.cs" />
+    <Compile Include="LuaGlobalsTable.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>

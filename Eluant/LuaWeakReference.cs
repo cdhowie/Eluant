@@ -68,6 +68,17 @@ namespace Eluant
 
             WeakTable.Runtime.PushWeakReference(this);
         }
+
+        public override bool Equals(LuaValue other)
+        {
+            // What should we consider -- the target object?  What if the target object is dead?
+            //
+            // We could compare the weak tables, but two different weak references can be independently created and
+            // would have different tables.
+            //
+            // The only thing feasible to do is implement CLR object reference equality.
+            return object.ReferenceEquals(other, this);
+        }
     }
 }
 

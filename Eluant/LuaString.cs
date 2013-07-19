@@ -35,6 +35,11 @@ namespace Eluant
             return Value;
         }
 
+        public override bool Equals(LuaValue other)
+        {
+            return Equals(other as LuaString);
+        }
+
         internal override void Push(LuaRuntime runtime)
         {
             LuaApi.lua_pushlstring(runtime.LuaState, Value, new UIntPtr((ulong)Value.Length));

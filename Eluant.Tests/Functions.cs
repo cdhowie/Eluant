@@ -13,7 +13,7 @@ namespace Eluant.Tests
             using (var runtime = new LuaRuntime()) {
                 runtime.DoString("function basic_function(x) return x * 2 + 1 end");
 
-                using (var fn = (LuaFunction)runtime["basic_function"]) {
+                using (var fn = (LuaFunction)runtime.Globals["basic_function"]) {
                     using (var result = fn.Call(5)) {
                         Assert.AreEqual(1, result.Count, "result.Count");
                         Assert.AreEqual(11, result[0].ToNumber(), "result[0]");
@@ -30,7 +30,7 @@ namespace Eluant.Tests
 
             using (var runtime = new LuaRuntime()) {
                 using (var wrapper = runtime.CreateFunctionFromDelegate(callback)) {
-                    runtime["callback"] = wrapper;
+                    runtime.Globals["callback"] = wrapper;
                 }
 
                 runtime.DoString("callback(42)");
@@ -56,7 +56,7 @@ namespace Eluant.Tests
 
             using (var runtime = new LuaRuntime()) {
                 using (var wrapper = runtime.CreateFunctionFromDelegate(thrower)) {
-                    runtime["callback"] = wrapper;
+                    runtime.Globals["callback"] = wrapper;
                 }
 
                 runtime.DoString("callback()");
@@ -71,7 +71,7 @@ namespace Eluant.Tests
 
             using (var runtime = new LuaRuntime()) {
                 using (var wrapper = runtime.CreateFunctionFromDelegate(thrower)) {
-                    runtime["callback"] = wrapper;
+                    runtime.Globals["callback"] = wrapper;
                 }
 
                 runtime.DoString("callback()");
@@ -99,7 +99,7 @@ namespace Eluant.Tests
 
             using (var runtime = new LuaRuntime()) {
                 using (var wrapper = runtime.CreateFunctionFromDelegate(cb)) {
-                    runtime["callback"] = wrapper;
+                    runtime.Globals["callback"] = wrapper;
                 }
 
                 runtime.DoString("callback(10, 20, 0.5, 'foobar', { widget='dingus' }, true, nil)");
@@ -117,7 +117,7 @@ namespace Eluant.Tests
 
             using (var runtime = new LuaRuntime()) {
                 using (var f = runtime.CreateFunctionFromDelegate(fn)) {
-                    runtime["callback"] = f;
+                    runtime.Globals["callback"] = f;
                 }
 
                 using (var results = runtime.DoString("return callback()")) {
@@ -131,7 +131,7 @@ namespace Eluant.Tests
         {
             using (var runtime = new LuaRuntime()) {
                 using (var callback = runtime.CreateFunctionFromDelegate(new Action(() => { Assert.Fail("Function called."); }))) {
-                    runtime["callback"] = callback;
+                    runtime.Globals["callback"] = callback;
                 }
 
                 using (var r = runtime.DoString("return coroutine.resume(coroutine.create(callback))")) {

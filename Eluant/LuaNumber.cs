@@ -48,6 +48,11 @@ namespace Eluant
             return Equals(obj as LuaNumber);
         }
 
+        public override bool Equals(LuaValue other)
+        {
+            return Equals(other as LuaNumber);
+        }
+
         #region IEquatable<T>
 
         public bool Equals(LuaNumber n)

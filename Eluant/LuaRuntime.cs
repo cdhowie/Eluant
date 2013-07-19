@@ -44,6 +44,8 @@ namespace Eluant
                 LuaState = LuaApi.luaL_newstate();
             }
 
+            Globals = new LuaGlobalsTable(this);
+
             Initialize();
         }
 
@@ -110,9 +112,9 @@ namespace Eluant
 
             DoString(Scripts.BindingSupport).Dispose();
 
-            createManagedCallWrapper = (LuaFunction)this["eluant_create_managed_call_wrapper"];
+            createManagedCallWrapper = (LuaFunction)Globals["eluant_create_managed_call_wrapper"];
 
-            this["eluant_create_managed_call_wrapper"] = null;
+            Globals["eluant_create_managed_call_wrapper"] = null;
 
             delegateWrapperCallCallback = DelegateWrapperCallCalback;
 
@@ -168,7 +170,9 @@ namespace Eluant
             }
         }
 
-        public LuaValue this[LuaValue key]
+        public LuaGlobalsTable Globals { get; private set; }
+
+        /*public LuaValue this[LuaValue key]
         {
             get {
                 CheckDisposed();
@@ -199,7 +203,7 @@ namespace Eluant
                     LuaApi.lua_settop(LuaState, top);
                 }
             }
-        }
+        }*/
 
         internal void Push(LuaValue value)
         {

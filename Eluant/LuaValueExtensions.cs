@@ -43,6 +43,12 @@ namespace Eluant
                 yield return value;
             }
         }
+
+        public static void Dispose(this KeyValuePair<LuaValue, LuaValue> self)
+        {
+            if (self.Key != null) { self.Key.Dispose(); }
+            if (self.Value != null) { self.Value.Dispose(); }
+        }
     }
 }
 

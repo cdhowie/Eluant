@@ -35,7 +35,7 @@ namespace Eluant.Tests
                 };
 
                 using (var callback = runtime.CreateFunctionFromDelegate(fn)) {
-                    runtime["callback"] = callback;
+                    runtime.Globals["callback"] = callback;
                 }
 
                 runtime.DoString("callback()").Dispose();

@@ -43,6 +43,11 @@ namespace Eluant
             return Equals(obj as LuaBoolean);
         }
 
+        public override bool Equals(LuaValue other)
+        {
+            return Equals(other as LuaBoolean);
+        }
+
         public bool Equals(LuaBoolean b)
         {
             return b != null && b.Value == Value;

@@ -30,7 +30,7 @@ Using Eluant is straightforward in a lot of respects.  Make sure that you dispos
         {
             using (var runtime = new LuaRuntime()) {
                 using (var fn = runtime.CreateFunctionFromDelegate(new Func<int, int>(x => x * x))) {
-                    runtime["square"] = fn;
+                    runtime.Globals["square"] = fn;
                 }
 
                 runtime.DoString("print(square(4))").Dispose();
@@ -99,17 +99,17 @@ Note that any Lua value that inherits from LuaValueType does not need to be disp
 Take note of these patterns, as they will cause short-term leaks:
 
     // Leaks if the Lua 'bar' global is of a reference type.
-    runtime["foo"] = runtime["bar"];
+    runtime.Globals["foo"] = runtime.Globals["bar"];
 
     // Leaks a reference to the Lua function object.
-    runtime["foo"] = runtime.CreateFunctionFromDelegate(new Action(() => {}));
+    runtime.Globals["foo"] = runtime.CreateFunctionFromDelegate(new Action(() => {}));
 
     // Leaks many ways:
     //
     // 1. The LuaFunction reference is not disposed.
     // 2. If the 'bar' global is of a reference type, its reference is not disposed.
     // 3. The result list from the call is not disposed, leaking any references it contains.
-    ((LuaFunction) runtime["foo"]).Call(runtime["bar"]);
+    ((LuaFunction) runtime.Globals["foo"]).Call(runtime.Globals["bar"]);
 
 The finalizers for Lua reference objects will ensure that the reference is properly released at an unspecified future time.  Eluant cannot release such references immediately upon CLR object finalization, because Lua is not thread-safe.  Finalized references are queued to be released at a later time.  Between the time the reference is leaked and the time that Eluant collects the reference, the Lua object is not eligible for collection.  When the object is explicitly disposed, however, Eluant assumes that the disposal happened on the thread with control of the Lua runtime, and immediately releases the reference to the Lua object.  (One should not dispose of Lua references while another thread is using the runtime.  See the "Thread Safety" section.)
 
@@ -122,7 +122,7 @@ One can call `CopyReference()` on any `LuaValue` object to create a copy of any 
     using (var runtime1 = new LuaRuntime())
     using (var runtime2 = new LuaRuntime()) {
         using (var table = runtime1.CreateTable()) {
-            runtime2["foo"] = table;    // InvalidOperationException
+            runtime2.Globals["foo"] = table;    // InvalidOperationException
         }
     }
 

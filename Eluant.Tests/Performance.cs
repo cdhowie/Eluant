@@ -54,9 +54,9 @@ function loop_table(t)
     end
 end
 ");
-                using (var fn = (LuaFunction)runtime["fn"])
-                using (var loop = (LuaFunction)runtime["loop"])
-                using (var loop_table = (LuaFunction)runtime["loop_table"]) {
+                using (var fn = (LuaFunction)runtime.Globals["fn"])
+                using (var loop = (LuaFunction)runtime.Globals["loop"])
+                using (var loop_table = (LuaFunction)runtime.Globals["loop_table"]) {
                     // CLR loop.
                     clrResults = new List<double>(ITEMS);
                     clrSw.Start();

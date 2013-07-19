@@ -32,6 +32,11 @@ namespace Eluant
         {
             return "nil";
         }
+
+        public override bool Equals(LuaValue other)
+        {
+            return other == null || other == this;
+        }
     }
 }
 

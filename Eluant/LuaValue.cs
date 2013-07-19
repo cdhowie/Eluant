@@ -2,7 +2,7 @@ using System;
 
 namespace Eluant
 {
-    public abstract class LuaValue : IDisposable
+    public abstract class LuaValue : IDisposable, IEquatable<LuaValue>
     {
         internal LuaValue() { }
 
@@ -16,12 +16,6 @@ namespace Eluant
         }
 
         protected abstract LuaValue CopyReferenceImpl();
-
-        public virtual LuaValue this[LuaValue key]
-        {
-            get { throw new NotSupportedException("Type does not support indexing."); }
-            set { throw new NotSupportedException("Type does not support indexing."); }
-        }
 
         public virtual double? ToNumber()
         {
@@ -49,6 +43,8 @@ namespace Eluant
         {
             return (LuaNumber)n;
         }
+
+        public abstract bool Equals(LuaValue other);
     }
 }
 

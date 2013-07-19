@@ -15,7 +15,7 @@ namespace Eluant.Tests
             // reference destructions.  This should return the runtime to exactly the same state as it was at the
             // beginning of the test.
             using (var runtime = new MemoryConstrainedLuaRuntime()) {
-                using (var collect = (LuaFunction)runtime["collectgarbage"]) {
+                using (var collect = (LuaFunction)runtime.Globals["collectgarbage"]) {
                     collect.Call().Dispose();
 
                     var begin = runtime.MemoryUse;

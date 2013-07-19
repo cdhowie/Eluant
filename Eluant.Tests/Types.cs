@@ -10,11 +10,11 @@ namespace Eluant.Tests
         public void Boolean()
         {
             using (var runtime = new LuaRuntime()) {
-                runtime["t"] = true;
-                using (var t = runtime["t"]) { Assert.AreEqual(t, LuaBoolean.True); }
+                runtime.Globals["t"] = true;
+                using (var t = runtime.Globals["t"]) { Assert.AreEqual(t, LuaBoolean.True); }
 
-                runtime["t"] = false;
-                using (var t = runtime["t"]) { Assert.AreEqual(t, LuaBoolean.False); }
+                runtime.Globals["t"] = false;
+                using (var t = runtime.Globals["t"]) { Assert.AreEqual(t, LuaBoolean.False); }
             }
         }
 
@@ -54,9 +54,9 @@ namespace Eluant.Tests
         public void OpaqueClrObject()
         {
             using (var runtime = new LuaRuntime()) {
-                runtime["o"] = new LuaOpaqueClrObject(this);
+                runtime.Globals["o"] = new LuaOpaqueClrObject(this);
 
-                using (var o = (LuaOpaqueClrObjectReference)runtime["o"]) {
+                using (var o = (LuaOpaqueClrObjectReference)runtime.Globals["o"]) {
                     Assert.AreSame(this, o.ClrObject);
                 }
             }
@@ -68,7 +68,7 @@ namespace Eluant.Tests
             using (var runtime = new LuaRuntime()) {
                 using (var table = runtime.CreateTable()) {
                     table["foo"] = "bar";
-                    runtime["t"] = table;
+                    runtime.Globals["t"] = table;
                 }
 
                 using (var results = runtime.DoString("return t['foo']")) {
@@ -127,7 +127,7 @@ namespace Eluant.Tests
             using (var runtime1 = new LuaRuntime())
             using (var runtime2 = new LuaRuntime()) {
                 using (var table = runtime1.CreateTable()) {
-                    Assert.Throws<InvalidOperationException>(() => runtime2["foo"] = table);
+                    Assert.Throws<InvalidOperationException>(() => runtime2.Globals["foo"] = table);
 
                     using (var table2 = runtime2.CreateTable()) {
                         Assert.Throws<InvalidOperationException>(() => table["foo"] = table2);
