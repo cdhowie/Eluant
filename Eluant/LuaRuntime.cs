@@ -546,13 +546,7 @@ namespace Eluant
 
         internal void PushOpaqueClrObject(object obj)
         {
-            var objPtr = (IntPtr)GCHandle.Alloc(obj);
-
-            if (objPtr == IntPtr.Zero) {
-                throw new InvalidOperationException("Could not allocate GC handle to object.");
-            }
-
-            LuaApi.lua_pushlightuserdata(LuaState, objPtr);
+            LuaApi.lua_pushlightuserdata(LuaState, (IntPtr)GCHandle.Alloc(obj));
             LuaApi.luaL_getmetatable(LuaState, OPAQUECLROBJECT_METATABLE);
             LuaApi.lua_setmetatable(LuaState, -2);
         }
