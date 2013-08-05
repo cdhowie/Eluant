@@ -619,6 +619,13 @@ namespace Eluant
 
         private int DelegateWrapperCallCalback(IntPtr state)
         {
+            // We need to do this check as early as possible to avoid using the wrong state pointer.
+            if (state != GetMainThread(state)) {
+                LuaApi.lua_pushboolean(state, 0);
+                LuaApi.lua_pushstring(state, "Cannot enter the CLR from inside of a Lua coroutine.");
+                return 2;
+            }
+
             OnEnterClr();
             try {
                 var d = (Delegate)GetOpaqueClrObject(LuaApi.lua_upvalueindex(1));
@@ -658,10 +665,6 @@ namespace Eluant
             var toDispose = new List<IDisposable>();
 
             try {
-                if (state != GetMainThread(state)) {
-                    throw new LuaException("Cannot enter the CLR from inside of a Lua coroutine.");
-                }
-
                 // As with Call(), we are crossing a Lua<->CLR boundary, so release any references that have been 
                 // queued to be released.
                 ProcessReleasedReferences();
