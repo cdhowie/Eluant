@@ -143,12 +143,14 @@ namespace Eluant
                     // This is the perfect storm.  The CLR is shutting down, and we created the Lua state with a custom
                     // allocator.  The allocator delegate may have already been finalized, which (at least on Mono)
                     // would mean that the unmanaged->managed trampoline has been collected.  Any action we take now
-                    // (including lua_close()) would call this (missing) trampoline and segfault.
+                    // (including lua_close()) would call this potentially missing trampoline.  If the trampoline is
+                    // missing then this causes a segfault or access violation, taking the runtime down hard.
                     //
                     // The only sane thing to do here is skip lua_close() and let the OS clean up the Lua allocation.
                     //
                     // This means that Lua objects won't be collected, so hopefully no finalizations there were of a
-                    // critical nature (or things that the OS won't do when the runtime process quits, anyway).
+                    // critical nature (or things that the OS won't do when the runtime process quits, anyway).  This
+                    // implies that GCHandles allocated for opaque CLR object references will not be freed, either.
                     //
                     // Consumers should make sure that they dispose Lua runtimes before the CLR begins shutting down to
                     // avoid this scenario.
