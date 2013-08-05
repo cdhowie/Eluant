@@ -136,6 +136,7 @@ namespace Eluant.Tests
 
                 using (var r = runtime.DoString("return coroutine.resume(coroutine.create(callback))")) {
                     Assert.IsFalse(r[0].ToBoolean(), "Call succeeded.");
+                    Assert.IsTrue(r[1].ToString().EndsWith("Cannot enter the CLR from inside of a Lua coroutine."), "Error message is accurate.");
                 }
             }
         }
