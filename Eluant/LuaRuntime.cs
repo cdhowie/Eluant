@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Reflection;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 
 namespace Eluant
 {
@@ -15,8 +16,6 @@ namespace Eluant
         // Separate field for the corner case where customAllocator was collected first.
         private bool hasCustomAllocator = false;
         private LuaAllocator customAllocator;
-
-        private ObjectManager objectManager = new ObjectManager();
 
         private const string MAIN_THREAD_KEY = "eluant_main_thread";
         private const string REFERENCES_KEY = "eluant_references";
@@ -158,8 +157,6 @@ namespace Eluant
                     LuaApi.lua_close(LuaState);
                     LuaState = IntPtr.Zero;
                 }
-
-                objectManager = null;
             }
         }
 
@@ -547,8 +544,13 @@ namespace Eluant
 
         internal void PushOpaqueClrObject(object obj)
         {
-            var reference = objectManager.AddReference(obj);
-            LuaApi.lua_pushlightuserdata(LuaState, new IntPtr(unchecked((int)reference)));
+            var objPtr = (IntPtr)GCHandle.Alloc(obj);
+
+            if (objPtr == IntPtr.Zero) {
+                throw new InvalidOperationException("Could not allocate GC handle to object.");
+            }
+
+            LuaApi.lua_pushlightuserdata(LuaState, objPtr);
             LuaApi.luaL_getmetatable(LuaState, OPAQUECLROBJECT_METATABLE);
             LuaApi.lua_setmetatable(LuaState, -2);
         }
@@ -557,8 +559,26 @@ namespace Eluant
         {
             CheckDisposed();
 
-            var reference = unchecked((uint)LuaApi.lua_touserdata(LuaState, index).ToInt32());
-            return objectManager.GetReference(reference);
+            // Make sure this is an opaque object!
+            //
+            // This test can fail if we are on a Lua thread, since we will be using the wrong Lua state.  In practice we
+            // should have already checked to make sure we are not on a different Lua thread, but this is here as an
+            // additional safeguard since there are potential security implications if things go wrong here.
+            if (LuaApi.lua_type(LuaState, index) == LuaApi.LuaType.LightUserdata) {
+                LuaApi.lua_getmetatable(LuaState, index);
+                LuaApi.luaL_getmetatable(LuaState, OPAQUECLROBJECT_METATABLE);
+
+                var hasCorrectMetatable = LuaApi.lua_rawequal(LuaState, -1, -2) != 0;
+
+                LuaApi.lua_pop(LuaState, 2);
+
+                if (hasCorrectMetatable) {
+                    var handle = (GCHandle)LuaApi.lua_touserdata(LuaState, index);
+                    return handle.Target;
+                }
+            }
+
+            throw new InvalidOperationException("Attempt to obtain CLR object from a Lua object that does not represent a CLR object.");
         }
 
         public LuaOpaqueClrObjectReference CreateOpaqueClrObjectReference(object obj)
@@ -578,8 +598,8 @@ namespace Eluant
         {
             // Don't CheckDisposed() here... we were called from Lua, so lua_close() could not have been called yet.
 
-            var reference = unchecked((uint)LuaApi.lua_touserdata(state, 1).ToInt32());
-            objectManager.RemoveReference(reference);
+            var handle = (GCHandle)LuaApi.lua_touserdata(state, 1);
+            handle.Free();
 
             return 0;
         }
@@ -963,65 +983,6 @@ namespace Eluant
             }
 
             return (T)wrapped;
-        }
-
-        // This class manages the lifetime of CLR objects, making sure they don't get collected if Lua is the only thing
-        // with a reference to them.  This is the counterpart to LuaRuntime.MakeReference() etc.  We store CLR objects
-        // in a dictionary to keep the CLR from collecting them, and the key into that dictionary is passed to Lua code
-        // in the form of userdata.  When the userdata is passed back to C# code somehow, the key is extracted and the
-        // referenced object can be fetched (or removed) from the dictionary.
-        private class ObjectManager
-        {
-            private Dictionary<uint, object> references = new Dictionary<uint, object>();
-
-            private uint nextReference = 0;
-
-            public ObjectManager() { }
-
-            public uint AddReference(object obj)
-            {
-                // Special "null reference" value.
-                if (obj == null) { return 0; }
-                
-                uint reference;
-
-                lock (references) {
-                    do {
-                        if (nextReference == uint.MaxValue) {
-                            nextReference = 1;
-                        } else {
-                            ++nextReference;
-                        }
-
-                        reference = nextReference;
-                    } while (references.ContainsKey(reference));
-
-                    references[reference] = obj;
-                }
-
-                return reference;
-            }
-
-            public object GetReference(uint reference)
-            {
-                if (reference == 0) { return null; }
-
-                object obj;
-                lock (references) {
-                    if (!references.TryGetValue(reference, out obj)) {
-                        throw new InvalidOperationException("Reference not found: " + reference);
-                    }
-                }
-
-                return obj;
-            }
-
-            public bool RemoveReference(uint reference)
-            {
-                lock (references) {
-                    return references.Remove(reference);
-                }
-            }
         }
     }
 }
