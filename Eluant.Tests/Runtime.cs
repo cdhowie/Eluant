@@ -63,6 +63,45 @@ namespace Eluant.Tests
                 }
             }
         }
+
+        [Test]
+        public void Finalizer()
+        {
+            var finalized = false;
+            var luaState = IntPtr.Zero;
+
+            new LuaRuntimeWithFinalizerCallback(state => {
+                finalized = true;
+                luaState = state;
+            });
+
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+
+            Assert.IsTrue(finalized, "finalized");
+            Assert.AreEqual(luaState.ToInt64(), IntPtr.Zero.ToInt64(), "luaState");
+        }
+
+        // We test MemoryConstrainedLuaRuntime here because that is the most complex and has shown issues with not
+        // being eligible for finalization in the past.
+        private class LuaRuntimeWithFinalizerCallback : MemoryConstrainedLuaRuntime
+        {
+            private Action<IntPtr> finalizerCallback;
+
+            public LuaRuntimeWithFinalizerCallback(Action<IntPtr> finalizerCallback)
+            {
+                this.finalizerCallback = finalizerCallback;
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                base.Dispose(disposing);
+
+                if (!disposing) {
+                    finalizerCallback(LuaState);
+                }
+            }
+        }
     }
 }
 

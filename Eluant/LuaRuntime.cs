@@ -11,7 +11,7 @@ namespace Eluant
     {
         protected internal delegate IntPtr LuaAllocator(IntPtr ud, IntPtr ptr, IntPtr osize, IntPtr nsize);
 
-        internal IntPtr LuaState { get; private set; }
+        protected internal IntPtr LuaState { get; private set; }
 
         // Separate field for the corner case where customAllocator was collected first.
         private bool hasCustomAllocator = false;
