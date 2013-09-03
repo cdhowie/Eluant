@@ -254,5 +254,32 @@ end
                 return i + 2;
             }
         }
+
+        [Test]
+        public void TransparentObjectEquality()
+        {
+            using (var runtime = new LuaRuntime()) {
+                var script = @"
+function fn(a, b)
+    return {
+        ['a == b'] = (a == b),
+        ['a == 1'] = (a == 1),
+        ['1 == b'] = (1 == b),
+    }
+end
+";
+
+                runtime.DoString(script).Dispose();
+
+                using (var fn = (LuaFunction)runtime.Globals["fn"])
+                using (var results = fn.Call(new LuaTransparentClrObject(this), new LuaTransparentClrObject(this))) {
+                    var table = (LuaTable)results[0];
+
+                    Assert.AreEqual(LuaBoolean.True, table["a == b"], "a == b");
+                    Assert.AreEqual(LuaBoolean.False, table["a == 1"], "a == 1");
+                    Assert.AreEqual(LuaBoolean.False, table["1 == b"], "1 == b");
+                }
+            }
+        }
     }
 }
