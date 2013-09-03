@@ -1190,7 +1190,11 @@ namespace Eluant
                     return retVararg.Count + 1;
                 }
 
-                var retValue = AsLuaValue(ret, true);
+                var retValue = AsLuaValue(ret);
+                if (retValue == null) {
+                    throw new LuaException(string.Format("Unable to convert object of type {0} to Lua value.",
+                                                         ret.GetType().FullName));
+                }
 
                 // Similar to the vararg case, we always dispose the returned value object.
                 //
@@ -1224,7 +1228,7 @@ namespace Eluant
             }
         }
 
-        public LuaValue AsLuaValue(object obj, bool permitBox)
+        public LuaValue AsLuaValue(object obj)
         {
             CheckDisposed();
 
@@ -1254,10 +1258,6 @@ namespace Eluant
             try {
                 return (LuaNumber)(double)Convert.ChangeType(obj, typeof(double));
             } catch { }
-
-            if (permitBox) {
-                return new LuaOpaqueClrObject(obj);
-            }
 
             return null;
         }

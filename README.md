@@ -200,31 +200,9 @@ In all other cases, the declared return type is ignored and the actual type of t
 * If it is a delegate: A Lua function object that follows the same set of rules in this documentation section.
 * If it is a `String`: The corresponding Lua string.
 * If it is a numeric type: The corresponding Lua number.
-* In all other cases: An opaque CLR object.
+* In all other cases: An error is raised in the calling code.
 
-For maximum control, it is recommended that delegates intended to be called from Lua code declare a return type of `LuaValue`.  There are implicit conversions from numeric types, strings, and bools to `LuaValue`, and `null` is treated identically to a `LuaNil` object.  This allows the code author to be absolutely sure about how the returned value will be handled.  For example, note that `Char` does not match any other type, and so would be passed to Lua code as an opaque boxed `Char` object -- probably not what was intended.  If the return type is `LuaValue` then one cannot return a `Char` accidentally:
-
-    // Compiles, probably does not do what author intended.
-    char LuaCallback()
-    {
-        return 'a';
-    }
-
-    // Compile-time error!
-    LuaValue LuaCallback()
-    {
-        return 'a';
-    }
-
-    // The author probably wanted to pass it back as a 1-character string.
-    //
-    // Works, there is an implicit conversion from String to LuaValue.
-    LuaValue LuaCallback()
-    {
-        return 'a'.ToString();
-    }
-
-Since there is no implicit conversion from `Object`, it is not possible to accidentally return a CLR object as an opaque object to Lua; that requires explicit construction of a `LuaOpaqueClrObject` object.
+For maximum control, it is recommended that delegates intended to be called from Lua code declare a return type of `LuaValue`.  There are implicit conversions from numeric types, strings, and bools to `LuaValue`, and `null` is treated identically to a `LuaNil` object.  This allows the code author to be sure at compile-time that an error will not be returned to Lua due to an object that can't be converted to a Lua value.
 
 All objects that Eluant disposes automatically -- arguments and return values -- will be disposed after return value processing is complete.  This means that it is safe to return from a delegate a Lua reference that was passed to that delegate.
 

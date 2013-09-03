@@ -82,7 +82,7 @@ namespace Eluant.ObjectBinding
 
         public virtual LuaValue ObjectToLuaValue(object obj, IBindingContext bindingContext, LuaRuntime runtime)
         {
-            return runtime.AsLuaValue(obj, false) ??
+            return runtime.AsLuaValue(obj) ??
                 new LuaTransparentClrObject(obj, bindingContext.Binder, bindingContext.BindingSecurityPolicy);
         }
 
