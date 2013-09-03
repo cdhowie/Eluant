@@ -1,5 +1,6 @@
 using System;
 using NUnit.Framework;
+using Eluant.ObjectBinding;
 
 namespace Eluant.Tests
 {
@@ -54,12 +55,33 @@ namespace Eluant.Tests
         public void OpaqueClrObject()
         {
             using (var runtime = new LuaRuntime()) {
-                runtime.Globals["o"] = new LuaOpaqueClrObject(this);
+                var objValue = new LuaOpaqueClrObject(this);
+                runtime.Globals["o"] = objValue;
 
-                using (var o = (LuaOpaqueClrObjectReference)runtime.Globals["o"]) {
-                    Assert.AreSame(this, o.ClrObject);
+                using (var o = (LuaClrObjectReference)runtime.Globals["o"]) {
+                    Assert.AreSame(objValue, o.ClrObjectValue, "o.ClrObjectValue");
+                    Assert.AreSame(this, o.ClrObject, "o.ClrObject");
                 }
             }
+        }
+
+        [Test]
+        public void OpaqueClrObjectAsArgument()
+        {
+            object object1 = new object();
+            object object2 = null;
+
+            using (var runtime = new LuaRuntime()) {
+                runtime.Globals["o"] = new LuaOpaqueClrObject(object1);
+
+                using (var d = runtime.CreateFunctionFromDelegate(new Action<object>(o => object2 = o))) {
+                    runtime.Globals["fn"] = d;
+                }
+
+                runtime.DoString("fn(o)").Dispose();
+            }
+
+            Assert.AreSame(object1, object2);
         }
 
         [Test]
@@ -135,6 +157,102 @@ namespace Eluant.Tests
                 }
             }
         }
+
+        [Test]
+        public void AdditionBinding()
+        {
+            using (var runtime = new LuaRuntime()) {
+                runtime.DoString("function fn(o) return (2 + o) + 3 end").Dispose();
+
+                using (var fn = (LuaFunction)runtime.Globals["fn"]) {
+                    using (var results = fn.Call(new LuaCustomClrObject(new MathBindingObject(5)))) {
+                        Console.WriteLine(results[0]);
+                    }
+                }
+            }
+        }
+
+        private class MathBindingObject : ILuaAdditionBinding
+        {
+            public double Value { get; private set; }
+
+            public MathBindingObject(double value)
+            {
+                Value = value;
+            }
+
+            private static double ToNumber(LuaValue value)
+            {
+                return value.ToNumber() ?? ((MathBindingObject)value.GetClrObject()).Value;
+            }
+
+            #region ILuaAdditionBinding implementation
+
+            public LuaValue Add(LuaRuntime runtime, LuaValue left, LuaValue right)
+            {
+                return new LuaCustomClrObject(new MathBindingObject(1 + ToNumber(left) + ToNumber(right)));
+            }
+
+            #endregion
+        }
+
+        [Test]
+        public void TransparentBinding()
+        {
+            using (var runtime = new LuaRuntime()) {
+                var script = @"
+function fn(o)
+    local r = {
+        two = o.two(),
+        three = o.three,
+        four = o.Four(),
+        five = o.add_two(3),
+        GetType = o.GetType
+    }
+
+    return r
+end
+";
+
+                runtime.DoString(script).Dispose();
+
+                using (var fn = (LuaFunction)runtime.Globals["fn"]) {
+                    var results = (LuaTable)fn.Call(new LuaTransparentClrObject(new TransparentBindingObject()))[0];
+
+                    Assert.AreEqual(new LuaNumber(2), results["two"], "two");
+                    Assert.AreEqual(new LuaNumber(3), results["three"], "three");
+                    Assert.AreEqual(new LuaNumber(4), results["four"], "four");
+                    Assert.AreEqual(new LuaNumber(5), results["five"], "five");
+                    Assert.AreEqual(LuaNil.Instance, results["GetType"], "GetType");
+                }
+            }
+        }
+
+        private class TransparentBindingObject
+        {
+            [LuaMember("two")]
+            public int Two()
+            {
+                return 2;
+            }
+
+            [LuaMember("three")]
+            public int Three
+            {
+                get { return 3; }
+            }
+
+            [LuaMember]
+            public int Four()
+            {
+                return 4;
+            }
+
+            [LuaMember("add_two")]
+            public int AddTwo(int i)
+            {
+                return i + 2;
+            }
+        }
     }
 }
-

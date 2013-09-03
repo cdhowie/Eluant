@@ -57,29 +57,51 @@ namespace Eluant.Tests
 
                     Assert.AreEqual("bar", t1["foo"].ToString());
                     Assert.AreEqual(6, t2[5].ToNumber());
-                    using (var clrRef = (LuaOpaqueClrObjectReference)t2["fixture"]) {
+                    using (var clrRef = (LuaClrObjectReference)t2["fixture"]) {
                         Assert.AreSame(this, clrRef.ClrObject);
                     }
                 }
             }
         }
 
+        // This may seem like an unnecessary test, but it is actualy required to make sure that Lua runtimes can be
+        // properly finalized when there are no outstanding managed references to them.  If we ever make the mistake of
+        // passing something into the Lua runtime that represents a strong reference that the runtime is reachable from,
+        // this will cause the runtime to become un-finalizable (it can still be disposed of, of course).
+        //
+        // This test helps make sure that this isn't accidentally done in binding code.
         [Test]
         public void Finalizer()
         {
             var finalized = false;
             var luaState = IntPtr.Zero;
 
-            new LuaRuntimeWithFinalizerCallback(state => {
-                finalized = true;
-                luaState = state;
-            });
+            // The GC (at least on Mono) is a bit picky, and an object reference left in the register or somewhere on
+            // the call stack can cause the object to be ineligible.  So we recurse 10 times and then run our test.
+            // Because of the recursion (as well as the use of a delegate) this seems fairly certain to make sure that
+            // Mono's GC can collect the object.
+            RecurseAndThen(10, () => 
+                new LuaRuntimeWithFinalizerCallback(state => {
+                    finalized = true;
+                    luaState = state;
+                }));
 
             GC.Collect();
             GC.WaitForPendingFinalizers();
 
             Assert.IsTrue(finalized, "finalized");
             Assert.AreEqual(luaState.ToInt64(), IntPtr.Zero.ToInt64(), "luaState");
+        }
+
+        private static int RecurseAndThen(int times, Action callback)
+        {
+            if (times == 0) {
+                callback();
+                return 0;
+            }
+
+            // No tailcalls please.
+            return RecurseAndThen(times - 1, callback) + 1;
         }
 
         // We test MemoryConstrainedLuaRuntime here because that is the most complex and has shown issues with not

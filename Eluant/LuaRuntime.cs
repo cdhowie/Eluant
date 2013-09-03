@@ -4,6 +4,8 @@ using System.Threading;
 using System.Reflection;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using Eluant.ObjectBinding;
+using System.Linq;
 
 namespace Eluant
 {
@@ -12,6 +14,8 @@ namespace Eluant
         protected internal delegate IntPtr LuaAllocator(IntPtr ud, IntPtr ptr, IntPtr osize, IntPtr nsize);
 
         protected internal IntPtr LuaState { get; private set; }
+
+        private ObjectReferenceManager<LuaClrObjectValue> objectReferenceManager = new ObjectReferenceManager<LuaClrObjectValue>();
 
         // Separate field for the corner case where customAllocator was collected first.
         private bool hasCustomAllocator = false;
@@ -23,9 +27,11 @@ namespace Eluant
         private const string WEAKREFERENCE_METATABLE = "eluant_weakreference";
 
         private const string OPAQUECLROBJECT_METATABLE = "eluant_opaqueclrobject";
-        private LuaApi.lua_CFunction opaqueClrObjectGcCallback;
+        private LuaApi.lua_CFunction clrObjectGcCallback;
 
-        private LuaApi.lua_CFunction delegateWrapperCallCallback;
+        private Dictionary<string, LuaFunction> metamethodCallbacks = new Dictionary<string, LuaFunction>();
+
+        private LuaApi.lua_CFunction methodWrapperCallCallback;
 
         private LuaFunction createManagedCallWrapper;
 
@@ -37,6 +43,7 @@ namespace Eluant
 
             if (customAllocator != null) {
                 hasCustomAllocator = true;
+                //LuaState = LuaApi.luaL_newstate();
                 LuaState = LuaApi.lua_newstate(customAllocator, IntPtr.Zero);
             } else {
                 hasCustomAllocator = false;
@@ -75,6 +82,28 @@ namespace Eluant
             return mainThread;
         }
 
+        private LuaFunction CreateCallbackWrapper(LuaApi.lua_CFunction callback)
+        {
+            var top = LuaApi.lua_gettop(LuaState);
+
+            try {
+                Push(createManagedCallWrapper);
+
+                // Keep the delegate object alive!  We won't be destroying this reference so we don't need to record the
+                // reference identifier.
+                objectReferenceManager.CreateReference(new LuaOpaqueClrObject(callback));
+                LuaApi.lua_pushcfunction(LuaState, callback);
+
+                if (LuaApi.lua_pcall(LuaState, 1, 1, 0) != 0) {
+                    throw new InvalidOperationException("Unable to create delegate wrapper.");
+                }
+
+                return (LuaFunction)Wrap(-1);
+            } finally {
+                LuaApi.lua_settop(LuaState, top);
+            }
+        }
+
         private void Initialize()
         {
             PreInitialize();
@@ -87,16 +116,20 @@ namespace Eluant
             LuaApi.lua_pushlightuserdata(LuaState, LuaState);
             LuaApi.lua_setfield(LuaState, LuaApi.LUA_REGISTRYINDEX, MAIN_THREAD_KEY);
 
-            opaqueClrObjectGcCallback = OpaqueClrObjectGcCallback;
+            clrObjectGcCallback = ClrObjectGcCallback;
 
             LuaApi.luaL_newmetatable(LuaState, OPAQUECLROBJECT_METATABLE);
 
             LuaApi.lua_pushstring(LuaState, "__gc");
-            LuaApi.lua_pushcfunction(LuaState, opaqueClrObjectGcCallback);
+            LuaApi.lua_pushcfunction(LuaState, clrObjectGcCallback);
             LuaApi.lua_settable(LuaState, -3);
 
             LuaApi.lua_pushstring(LuaState, "__metatable");
             LuaApi.lua_pushboolean(LuaState, 0);
+            LuaApi.lua_settable(LuaState, -3);
+
+            LuaApi.lua_pushstring(LuaState, "is_clr_object");
+            LuaApi.lua_pushboolean(LuaState, 1);
             LuaApi.lua_settable(LuaState, -3);
 
             LuaApi.lua_pop(LuaState, 1);
@@ -115,7 +148,23 @@ namespace Eluant
 
             Globals["eluant_create_managed_call_wrapper"] = null;
 
-            delegateWrapperCallCallback = DelegateWrapperCallCalback;
+            methodWrapperCallCallback = MethodWrapperCallCalback;
+
+            metamethodCallbacks["__newindex"] = CreateCallbackWrapper(NewindexCallback);
+            metamethodCallbacks["__index"] = CreateCallbackWrapper(IndexCallback);
+
+            metamethodCallbacks["__add"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaAdditionBinding>(state, (i, a, b) => i.Add(this, a, b)));
+            metamethodCallbacks["__sub"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaSubtractionBinding>(state, (i, a, b) => i.Subtract(this, a, b)));
+            metamethodCallbacks["__mul"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaMultiplicationBinding>(state, (i, a, b) => i.Multiply(this, a, b)));
+            metamethodCallbacks["__div"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaDivisionBinding>(state, (i, a, b) => i.Divide(this, a, b)));
+            metamethodCallbacks["__mod"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaModuloBinding>(state, (i, a, b) => i.Modulo(this, a, b)));
+            metamethodCallbacks["__pow"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaExponentiationBinding>(state, (i, a, b) => i.Power(this, a, b)));
+            metamethodCallbacks["__unm"] = CreateCallbackWrapper(state => UnaryOperatorCallback<ILuaUnaryMinusBinding>(state, i => i.Minus(this)));
+            metamethodCallbacks["__concat"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaConcatenationBinding>(state, (i, a, b) => i.Concatenate(this, a, b)));
+            metamethodCallbacks["__len"] = CreateCallbackWrapper(state => UnaryOperatorCallback<ILuaLengthBinding>(state, i => i.GetLength(this)));
+            metamethodCallbacks["__eq"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaEqualityBinding>(state, (i, a, b) => i.Equals(this, a, b)));
+            metamethodCallbacks["__lt"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaLessThanBinding>(state, (i, a, b) => i.LessThan(this, a, b)));
+            metamethodCallbacks["__le"] = CreateCallbackWrapper(state => BinaryOperatorCallback<ILuaLessThanOrEqualToBinding>(state, (i, a, b) => i.LessThanOrEqualTo(this, a, b)));
 
             PostInitialize();
         }
@@ -149,8 +198,7 @@ namespace Eluant
                     // The only sane thing to do here is skip lua_close() and let the OS clean up the Lua allocation.
                     //
                     // This means that Lua objects won't be collected, so hopefully no finalizations there were of a
-                    // critical nature (or things that the OS won't do when the runtime process quits, anyway).  This
-                    // implies that GCHandles allocated for opaque CLR object references will not be freed, either.
+                    // critical nature (or things that the OS won't do when the runtime process quits, anyway).
                     //
                     // Consumers should make sure that they dispose Lua runtimes before the CLR begins shutting down to
                     // avoid this scenario.
@@ -170,39 +218,6 @@ namespace Eluant
         }
 
         public LuaGlobalsTable Globals { get; private set; }
-
-        /*public LuaValue this[LuaValue key]
-        {
-            get {
-                CheckDisposed();
-
-                var top = LuaApi.lua_gettop(LuaState);
-
-                try {
-                    LuaApi.lua_pushvalue(LuaState, LuaApi.LUA_GLOBALSINDEX);
-                    Push(key);
-                    LuaApi.lua_gettable(LuaState, -2);
-
-                    return Wrap(-1);
-                } finally {
-                    LuaApi.lua_settop(LuaState, top);
-                }
-            }
-            set {
-                CheckDisposed();
-
-                var top = LuaApi.lua_gettop(LuaState);
-
-                try {
-                    LuaApi.lua_pushvalue(LuaState, LuaApi.LUA_GLOBALSINDEX);
-                    Push(key);
-                    Push(value);
-                    LuaApi.lua_settable(LuaState, -3);
-                } finally {
-                    LuaApi.lua_settop(LuaState, top);
-                }
-            }
-        }*/
 
         internal void Push(LuaValue value)
         {
@@ -353,13 +368,13 @@ namespace Eluant
                     return new LuaFunction(this, CreateReference(index));
 
                 case LuaApi.LuaType.LightUserdata:
-                    if (HasMetatable(index, OPAQUECLROBJECT_METATABLE)) {
-                        return new LuaOpaqueClrObjectReference(this, CreateReference(index));
-                    }
-
                     return new LuaLightUserdata(this, CreateReference(index));
 
                 case LuaApi.LuaType.Userdata:
+                    if (IsClrObject(index)) {
+                        return new LuaClrObjectReference(this, CreateReference(index));
+                    }
+
                     return new LuaUserdata(this, CreateReference(index));
 
                 case LuaApi.LuaType.Thread:
@@ -544,58 +559,297 @@ namespace Eluant
             }
         }
 
-        internal void PushOpaqueClrObject(object obj)
+        private void PushNewReferenceValue(int reference)
         {
-            LuaApi.lua_pushlightuserdata(LuaState, (IntPtr)GCHandle.Alloc(obj));
+            var userData = LuaApi.lua_newuserdata(LuaState, (UIntPtr)Marshal.SizeOf(typeof(IntPtr)));
+            Marshal.WriteIntPtr(userData, new IntPtr(reference));
+        }
+
+        private bool IsClrObject(int index)
+        {
+            if (LuaApi.lua_getmetatable(LuaState, index) == 0) {
+                return false;
+            }
+
+            LuaApi.lua_pushstring(LuaState, "is_clr_object");
+            LuaApi.lua_gettable(LuaState, -2);
+
+            var is_clr_object = LuaApi.lua_toboolean(LuaState, -1) != 0;
+
+            LuaApi.lua_pop(LuaState, 2);
+
+            return is_clr_object;
+        }
+
+        private int? TryGetReference(int index)
+        {
+            // Make sure this Lua value represents a CLR object.  There are security implications if things go wrong
+            // here, so we check to make absolutely sure that the Lua value represents one of our CLR object types.
+            if (LuaApi.lua_type(LuaState, index) == LuaApi.LuaType.Userdata) {
+                if (IsClrObject(index)) {
+                    var userData = LuaApi.lua_touserdata(LuaState, index);
+                    var handlePtr = Marshal.ReadIntPtr(userData);
+
+                    return handlePtr.ToInt32();
+                }
+            }
+
+            return null;
+        }
+
+        internal T GetClrObject<T>(int index)
+            where T : LuaClrObjectValue
+        {
+            var obj = TryGetClrObject<LuaClrObjectValue>(index);
+
+            if (obj == null) {
+                throw new InvalidOperationException("Attempt to obtain CLR object from a Lua object that does not represent a CLR object.");
+            }
+
+            var typedObj = obj as T;
+            if (typedObj == null) {
+                throw new InvalidOperationException(string.Format("CLR object of type {0} was found, but CLR object of incompatible type {1} was expected.",
+                                                                  obj.GetType().FullName,
+                                                                  typeof(T).FullName));
+            }
+
+            return typedObj;
+        }
+
+        internal T TryGetClrObject<T>(int index)
+            where T : LuaClrObjectValue
+        {
+            var reference = TryGetReference(index);
+
+            if (!reference.HasValue) {
+                return null;
+            }
+
+            return objectReferenceManager.GetReference(reference.Value) as T;
+        }
+
+        internal void PushOpaqueClrObject(LuaOpaqueClrObject obj)
+        {
+            // We don't check for null, intentionally.
+            PushNewReferenceValue(objectReferenceManager.CreateReference(obj));
             LuaApi.luaL_getmetatable(LuaState, OPAQUECLROBJECT_METATABLE);
             LuaApi.lua_setmetatable(LuaState, -2);
         }
 
-        internal object GetOpaqueClrObject(int index)
+        internal void PushCustomClrObject(LuaClrObjectValue obj)
         {
-            CheckDisposed();
-
-            // Make sure this is an opaque object!
-            //
-            // This test can fail if we are on a Lua thread, since we will be using the wrong Lua state.  In practice we
-            // should have already checked to make sure we are not on a different Lua thread, but this is here as an
-            // additional safeguard since there are potential security implications if things go wrong here.
-            if (LuaApi.lua_type(LuaState, index) == LuaApi.LuaType.LightUserdata) {
-                LuaApi.lua_getmetatable(LuaState, index);
-                LuaApi.luaL_getmetatable(LuaState, OPAQUECLROBJECT_METATABLE);
-
-                var hasCorrectMetatable = LuaApi.lua_rawequal(LuaState, -1, -2) != 0;
-
-                LuaApi.lua_pop(LuaState, 2);
-
-                if (hasCorrectMetatable) {
-                    var handle = (GCHandle)LuaApi.lua_touserdata(LuaState, index);
-                    return handle.Target;
-                }
+            if (obj == null || obj.ClrObject == null) {
+                LuaApi.lua_pushnil(LuaState);
+                return;
             }
 
-            throw new InvalidOperationException("Attempt to obtain CLR object from a Lua object that does not represent a CLR object.");
+            var reference = objectReferenceManager.CreateReference(obj);
+
+            try {
+                PushNewReferenceValue(reference);
+
+                // We will build up a unique metatable for this object based on the bindings it has implemented.
+                LuaApi.lua_newtable(LuaState);
+
+                // Set flag so that TryGetReference knows that this is a CLR object.
+                LuaApi.lua_pushstring(LuaState, "is_clr_object");
+                LuaApi.lua_pushboolean(LuaState, 1);
+                LuaApi.lua_settable(LuaState, -3);
+
+                // Protect the metatable.
+                LuaApi.lua_pushstring(LuaState, "__metatable");
+                LuaApi.lua_pushboolean(LuaState, 0);
+                LuaApi.lua_settable(LuaState, -3);
+
+                // __gc is required to clean up the reference.  The callback will determine if it implements the
+                // interface.
+                LuaApi.lua_pushstring(LuaState, "__gc");
+                LuaApi.lua_pushcfunction(LuaState, clrObjectGcCallback);
+                LuaApi.lua_settable(LuaState, -3);
+
+                // For all others, we use MetamethodAttribute on the interface to make this code less repetitive.
+                var metamethods = obj.BackingCustomObject.GetType().GetInterfaces()
+                    .SelectMany(iface => iface.GetCustomAttributes(typeof(MetamethodAttribute), false).Cast<MetamethodAttribute>());
+
+                foreach (var metamethod in metamethods) {
+                    LuaApi.lua_pushstring(LuaState, metamethod.MethodName);
+                    Push(metamethodCallbacks[metamethod.MethodName]);
+                    LuaApi.lua_settable(LuaState, -3);
+                }
+
+                LuaApi.lua_setmetatable(LuaState, -2);
+            } catch {
+                objectReferenceManager.DestroyReference(reference);
+                throw;
+            }
         }
 
-        public LuaOpaqueClrObjectReference CreateOpaqueClrObjectReference(object obj)
+        private int NewindexCallback(IntPtr state)
         {
-            CheckDisposed();
+            return LuaToClrBoundary(state, toDispose => {
+                // Arguments: Userdata (CLR object), key (property), value
+                var obj = GetClrObject<LuaClrObjectValue>(1).BackingCustomObject as ILuaTableBinding;
 
-            PushOpaqueClrObject(obj);
+                if (obj == null) {
+                    throw new LuaException("CLR object does not support indexing.");
+                }
+
+                var key = Wrap(2);
+                toDispose.Add(key);
+
+                var value = Wrap(3);
+                toDispose.Add(value);
+
+                obj[this, key] = value;
+
+                return 0;
+            });
+        }
+
+        private int IndexCallback(IntPtr state)
+        {
+            return LuaToClrBoundary(state, toDispose => {
+                // Arguments: Userdata (CLR object), key (property)
+                var obj = GetClrObject<LuaClrObjectValue>(1).BackingCustomObject as ILuaTableBinding;
+
+                if (obj == null) {
+                    throw new LuaException("CLR object does not support indexing.");
+                }
+
+                var key = Wrap(2);
+                toDispose.Add(key);
+
+                var value = obj[this, key];
+                toDispose.Add(value);
+
+                Push(value);
+
+                return 1;
+            });
+        }
+
+        private int CallCallback(IntPtr state)
+        {
+            return LuaToClrBoundary(state, toDispose => {
+                var obj = GetClrObject<LuaClrObjectValue>(1).BackingCustomObject as ILuaCallBinding;
+
+                if (obj == null) {
+                    throw new LuaException("CLR object is not callable.");
+                }
+
+                var nargs = LuaApi.lua_gettop(LuaState) - 1;
+                var args = new LuaValue[nargs];
+
+                for (int i = 0; i < nargs; ++i) {
+                    args[i] = Wrap(i + 2);
+                    toDispose.Add(args[i]);
+                }
+
+                var vararg = new LuaVararg(args, true);
+
+                var results = obj.Call(this, vararg);
+                toDispose.Add(results);
+
+                if (LuaApi.lua_checkstack(LuaState, 1 + results.Count) == 0) {
+                    throw new LuaException("Cannot grow stack for results.");
+                }
+
+                foreach (var v in results) {
+                    Push(v);
+                }
+
+                return results.Count;
+            });
+        }
+
+        private int UnaryOperatorCallback<T>(IntPtr state, Func<T, LuaValue> oper)
+            where T : class
+        {
+            return LuaToClrBoundary(state, toDispose => {
+                var binding = GetClrObject<LuaClrObjectValue>(1).BackingCustomObject as T;
+
+                if (binding == null) {
+                    throw new LuaException("Unary operator not found for CLR object.");
+                }
+
+                var result = oper(binding);
+                toDispose.Add(result);
+
+                Push(result);
+                return 1;
+            });
+        }
+
+        private int BinaryOperatorCallback<T>(IntPtr state, Func<T, LuaValue, LuaValue, LuaValue> oper)
+            where T : class
+        {
+            return LuaToClrBoundary(state, toDispose => {
+                // For binary operators, the right argument could be a CLR object while the left argument might not, and
+                // only one is guaranteed to support the given interface.  So we need to do some tests.
+                LuaClrObjectValue obj;
+                T binding = null;
+
+                if ((obj = TryGetClrObject<LuaClrObjectValue>(1)) != null) {
+                    binding = obj.BackingCustomObject as T;
+                }
+
+                if (binding == null && (obj = TryGetClrObject<LuaClrObjectValue>(2)) != null) {
+                    binding = obj.BackingCustomObject as T;
+                }
+
+                if (binding == null) {
+                    throw new LuaException("Binary operator not found for CLR object.");
+                }
+
+                var left = Wrap(1);
+                toDispose.Add(left);
+
+                var right = Wrap(2);
+                toDispose.Add(right);
+
+                var result = oper(binding, left, right);
+                toDispose.Add(result);
+
+                Push(result);
+                return 1;
+            });
+        }
+
+        public LuaClrObjectReference CreateClrObjectReference(LuaClrObjectValue obj)
+        {
+            if (obj == null) { throw new ArgumentNullException("obj"); }
+
+            Push(obj);
 
             var wrap = Wrap(-1);
 
             LuaApi.lua_pop(LuaState, 1);
 
-            return (LuaOpaqueClrObjectReference)wrap;
+            return (LuaClrObjectReference)wrap;
         }
 
-        private int OpaqueClrObjectGcCallback(IntPtr state)
+        private int ClrObjectGcCallback(IntPtr state)
         {
             // Don't CheckDisposed() here... we were called from Lua, so lua_close() could not have been called yet.
 
-            var handle = (GCHandle)LuaApi.lua_touserdata(state, 1);
-            handle.Free();
+            var reference = TryGetReference(1);
+            if (!reference.HasValue) {
+                // Not good, but what can we do?
+                return 0;
+            }
+
+            var obj = objectReferenceManager.GetReference(reference.Value);
+            
+            objectReferenceManager.DestroyReference(reference.Value);
+
+            if (obj != null) {
+                var finalizedBinding = obj.BackingCustomObject as ILuaFinalizedBinding;
+
+                if (finalizedBinding != null) {
+                    try { finalizedBinding.Finalized(this); }
+                    catch { }
+                }
+            }
 
             return 0;
         }
@@ -633,20 +887,30 @@ namespace Eluant
             return (LuaTable)wrap;
         }
 
-        private int DelegateWrapperCallCalback(IntPtr state)
+        private int? CheckOnMainThread(IntPtr state)
         {
-            // We need to do this check as early as possible to avoid using the wrong state pointer.
             if (state != GetMainThread(state)) {
                 LuaApi.lua_pushboolean(state, 0);
                 LuaApi.lua_pushstring(state, "Cannot enter the CLR from inside of a Lua coroutine.");
                 return 2;
             }
 
+            return null;
+        }
+
+        private int MethodWrapperCallCalback(IntPtr state)
+        {
+            // We need to do this check as early as possible to avoid using the wrong state pointer.
+            {
+                var ret = CheckOnMainThread(state);
+                if (ret.HasValue) { return ret.Value; }
+            }
+
             OnEnterClr();
             try {
-                var d = (Delegate)GetOpaqueClrObject(LuaApi.lua_upvalueindex(1));
+                var wrapper = (MethodWrapper)(GetClrObject<LuaClrObjectValue>(LuaApi.lua_upvalueindex(1)).ClrObject);
 
-                return MakeManagedCall(state, d);
+                return MakeManagedCall(state, wrapper);
             } finally {
                 OnEnterLua();
             }
@@ -656,6 +920,13 @@ namespace Eluant
         {
             if (d == null) { throw new ArgumentNullException("d"); }
 
+            return CreateFunctionFromMethodWrapper(new MethodWrapper(d));
+        }
+
+        internal LuaFunction CreateFunctionFromMethodWrapper(MethodWrapper wrapper)
+        {
+            if (wrapper == null) { throw new ArgumentNullException("wrapper"); }
+
             CheckDisposed();
 
             var top = LuaApi.lua_gettop(LuaState);
@@ -663,11 +934,11 @@ namespace Eluant
             try {
                 Push(createManagedCallWrapper);
 
-                PushOpaqueClrObject(d);
-                LuaApi.lua_pushcclosure(LuaState, delegateWrapperCallCallback, 1);
+                Push(new LuaOpaqueClrObject(wrapper));
+                LuaApi.lua_pushcclosure(LuaState, methodWrapperCallCallback, 1);
 
                 if (LuaApi.lua_pcall(LuaState, 1, 1, 0) != 0) {
-                    throw new InvalidOperationException("Unable to create delegate wrapper.");
+                    throw new InvalidOperationException("Unable to create wrapper function.");
                 }
 
                 return (LuaFunction)Wrap(-1);
@@ -676,7 +947,62 @@ namespace Eluant
             }
         }
 
-        private int MakeManagedCall(IntPtr state, Delegate d)
+        // Helper for handling the transition period when Lua calls into the CLR.
+        //
+        // Delegate should return the number of arguments it pushed.
+        private delegate int LuaToClrBoundaryCallback(IList<IDisposable> toDispose);
+
+        private int LuaToClrBoundary(IntPtr state, LuaToClrBoundaryCallback callback)
+        {
+            // We need to do this check as early as possible to avoid using the wrong state pointer.
+            {
+                var ret = CheckOnMainThread(state);
+                if (ret.HasValue) { return ret.Value; }
+            }
+
+            var toDispose = new List<IDisposable>();
+
+            var oldTop = LuaApi.lua_gettop(LuaState);
+
+            OnEnterClr();
+            try {
+                // Pre-push the success flag.
+                LuaApi.lua_pushboolean(LuaState, 1);
+
+                return callback(toDispose) + 1;
+            } catch (LuaException ex) {
+                // If something bad happens, we can't be sure how much space is left on the stack.  Lua guarantees 20
+                // free slots from the top, so restore the top back to the initial value to make sure we have enough
+                // space to report the error.
+                //
+                // The same thing goes for the other exception handler.
+                LuaApi.lua_settop(state, oldTop);
+
+                LuaApi.lua_pushboolean(LuaState, 0);
+                LuaApi.lua_pushstring(LuaState, ex.Message);
+                return 2;
+            } catch (Exception ex) {
+                LuaApi.lua_settop(state, oldTop);
+
+                LuaApi.lua_pushboolean(state, 0);
+                LuaApi.lua_pushstring(state, "Uncaught CLR exception at Lua->CLR boundary: " + ex.ToString());
+                return 2;
+            } finally {
+                try {
+                    foreach (var i in toDispose) {
+                        if (i != null) {
+                            i.Dispose();
+                        }
+                    }
+                } finally {
+                    // If something bad happens while disposing stuff that's okay... but we CAN'T skip this, or Lua code
+                    // running under a MemoryConstrainedLuaRuntime would be able to allocate more memory than the limit.
+                    OnEnterLua();
+                }
+            }
+        }
+
+        private int MakeManagedCall(IntPtr state, MethodWrapper wrapper)
         {
             var toDispose = new List<IDisposable>();
 
@@ -692,7 +1018,7 @@ namespace Eluant
                 // we will pass null (by Lua convention).  Otherwise, we will raise an error.
                 //
                 // For numeric types will try to be smart and convert the argument, if possible.
-                var parms = d.Method.GetParameters();
+                var parms = wrapper.Method.GetParameters();
                 object[] args;
 
                 LuaValue wrapped;
@@ -754,16 +1080,7 @@ namespace Eluant
                                 break;
 
                             case LuaApi.LuaType.LightUserdata:
-                                // With opaque CLR objects, we have ambiguity.  We could test if the parameter type is
-                                // compatible with LuaLightUserdata first, and if so wrap the Lua object.  But, perhaps the
-                                // opaque object IS a LuaLightUserdata instance?  There's really no way to be smart in that
-                                // situation.  Therefore, we will just unwrap any opaque CLR object and pray that was the
-                                // right thing to do.  (Especially since it's kind of silly to hand Lua code userdata
-                                // wrapped in userdata.  Further, we are trying to map to CLR types; if code wants Eluant
-                                // objects then it should take a LuaVararg instead.)
-                                if (HasMetatable(i + 1, OPAQUECLROBJECT_METATABLE)) {
-                                    args[i] = GetOpaqueClrObject(i + 1);
-                                } else if (ptype.IsAssignableFrom(typeof(LuaLightUserdata))) {
+                                if (ptype.IsAssignableFrom(typeof(LuaLightUserdata))) {
                                     args[i] = wrapped = Wrap(i + 1);
                                     toDispose.Add(wrapped);
                                 } else {
@@ -806,12 +1123,23 @@ namespace Eluant
                                 break;
 
                             case LuaApi.LuaType.Userdata:
-                                if (!ptype.IsAssignableFrom(typeof(LuaUserdata))) {
+                                // With CLR objects, we have ambiguity.  We could test if the parameter type is
+                                // compatible with LuaUserdata first, and if so wrap the Lua object.  But, perhaps the
+                                // opaque object IS a LuaUserdata instance?  There's really no way to be smart in that
+                                // situation.  Therefore, we will just unwrap any CLR object and pray that was the
+                                // right thing to do.  (Especially since it's kind of silly to hand Lua code userdata
+                                // wrapped in userdata.  Further, we are trying to map to CLR types; if code wants Eluant
+                                // objects then it should take a LuaVararg instead.)
+                                LuaClrObjectValue clrObject;
+                                if ((clrObject = TryGetClrObject<LuaClrObjectValue>(i + 1)) != null) {
+                                    args[i] = clrObject.ClrObject;
+                                } else if (ptype.IsAssignableFrom(typeof(LuaUserdata))) {
+                                    args[i] = wrapped = Wrap(i + 1);
+                                    toDispose.Add(wrapped);
+                                } else {
                                     throw new LuaException(string.Format("Argument {0}: Cannot be userdata.", i + 1));
                                 }
 
-                                args[i] = wrapped = Wrap(i + 1);
-                                toDispose.Add(wrapped);
                                 break;
 
                             default:
@@ -822,7 +1150,7 @@ namespace Eluant
 
                 object ret;
                 try {
-                    ret = d.DynamicInvoke(args);
+                    ret = wrapper.Invoke(args);
                 } catch (MemberAccessException) {
                     throw new LuaException("Invalid argument(s).");
                 } catch (TargetInvocationException ex) {
@@ -836,7 +1164,7 @@ namespace Eluant
                 ProcessReleasedReferences();
 
                 // If the method was declared to return void we can just stop now.
-                if (d.Method.ReturnType == typeof(void)) {
+                if (wrapper.Method.ReturnType == typeof(void)) {
                     LuaApi.lua_pushboolean(state, 1);
                     return 1;
                 }
@@ -851,7 +1179,7 @@ namespace Eluant
 
                     LuaApi.lua_pushboolean(state, 1);
 
-                    if (LuaApi.lua_checkstack(LuaState, retVararg.Count) == 0) {
+                    if (LuaApi.lua_checkstack(LuaState, 1 + retVararg.Count) == 0) {
                         throw new LuaException("Cannot grow stack for results.");
                     }
 
@@ -889,7 +1217,9 @@ namespace Eluant
                 // Dispose whatever we need to.  It's okay to dispose result objects, as that will only release the CLR
                 // reference to them; they will still be alive on the Lua stack.
                 foreach (var o in toDispose) {
-                    o.Dispose();
+                    if (o != null) {
+                        o.Dispose();
+                    }
                 }
             }
         }
@@ -979,6 +1309,88 @@ namespace Eluant
             }
 
             return (T)wrapped;
+        }
+
+        private class ObjectReferenceManager<T> where T : class
+        {
+            private Dictionary<int, T> references = new Dictionary<int, T>();
+            private int nextReference = 1;
+
+            public ObjectReferenceManager() { }
+
+            public T GetReference(int reference)
+            {
+                if (reference == 0) {
+                    return null;
+                }
+
+                T obj;
+                if (!references.TryGetValue(reference, out obj)) {
+                    throw new InvalidOperationException("No such reference: " + reference);
+                }
+
+                return obj;
+            }
+
+            public void DestroyReference(int reference)
+            {
+                references.Remove(reference);
+
+                nextReference = Math.Min(nextReference, reference);
+            }
+
+            public int CreateReference(T obj)
+            {
+                if (obj == null) {
+                    return 0;
+                }
+
+                var start = nextReference;
+                while (references.ContainsKey(nextReference)) {
+                    if (nextReference == int.MaxValue) {
+                        nextReference = 1;
+                    } else {
+                        ++nextReference;
+                    }
+
+                    if (nextReference == start) {
+                        throw new InvalidOperationException("Reference key space exhausted.");
+                    }
+                }
+
+                references[nextReference] = obj;
+
+                return nextReference;
+            }
+        }
+
+        // Delegate-like, but doesn't need a particular delegate type to do its work (which would be a problem for
+        // functions auto-generated from a CLR object method).
+        internal class MethodWrapper
+        {
+            public object Target { get; private set; }
+            public MethodInfo Method { get; private set; }
+
+            public MethodWrapper(object target, MethodInfo method)
+            {
+                if (method == null) { throw new ArgumentNullException("method"); }
+
+                Target = target;
+                Method = method;
+            }
+
+            public MethodWrapper(Delegate d)
+            {
+                if (d == null) { throw new ArgumentNullException("d"); }
+
+                Target = d.Target;
+                Method = d.Method;
+            }
+
+            public object Invoke(params object[] parms)
+            {
+                return Method.Invoke(Target, parms);
+            }
         }
     }
 }

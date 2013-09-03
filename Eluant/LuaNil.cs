@@ -37,6 +37,17 @@ namespace Eluant
         {
             return other == null || other == this;
         }
+
+        internal override object ToClrType(Type type)
+        {
+            if (type == null) { throw new ArgumentNullException("type"); }
+
+            if (!type.IsValueType || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))) {
+                return null;
+            }
+
+            return base.ToClrType(type);
+        }
     }
 }
 

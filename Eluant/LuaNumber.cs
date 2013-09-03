@@ -36,6 +36,17 @@ namespace Eluant
             return Value.ToString();
         }
 
+        internal override object ToClrType(Type type)
+        {
+            if (type == null) { throw new ArgumentNullException("type"); }
+
+            try {
+                return Convert.ChangeType(Value, type);
+            } catch { }
+
+            return base.ToClrType(type);
+        }
+
         private int hashCode;
 
         public override int GetHashCode()

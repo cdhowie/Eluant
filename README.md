@@ -51,18 +51,21 @@ To facilitate using Lua values in the CLR, there are a series of classes that mi
         + LuaReference
             + LuaFunction
             + LuaLightUserdata
-                + LuaOpaqueClrObjectReference
             + LuaTable
             + LuaThread
             + LuaUserdata
+                + LuaClrObjectReference
         + LuaValueType
             + LuaBoolean
+            + LuaClrObjectValue
+                + LuaCustomClrObject
+                + LuaOpaqueClrObject
             + LuaNil
             + LuaNumber
-            + LuaOpaqueClrObject
             + LuaString
         + LuaWeakReference<T>
     + LuaVararg
+    + IClrObject
 
 There is another type, `LuaVararg`, that does not inherit from `LuaValue`, just as varargs in Lua (`...`) are not first-class Lua values.  `LuaVararg` is provided as a way to facilitate proper memory management when dealing with the results of Lua function calls, as well as a way to accept and return multiple values from delegates.  (More on both topics later.)
 
@@ -76,11 +79,11 @@ There is special support for the Lua `nil` value in the form of `LuaNil`.  When 
 
 `LuaNumber` can be treated like a `Nullable<Double>` (`double?` in C#).  It has operator overloads that allow it to be used in arithmetic with any other `LuaNumber` object or CLR numeric type that could normally be used with a double or nullable double, as well as an implicit conversion to and from a nullable double.  Null `LuaNumber` objects act exactly like null nullable doubles.
 
-With regards to opaque CLR objects, there is a bit of duality in the class heirarchy; this is intentional.  `LuaOpaqueClrObject` doesn't refer to any specific Lua object, but wraps a CLR object.  At the point when Eluant converts this value into a Lua value, it will create a new Lua object to represent the CLR object.  `LuaOpaqueClrObjectReference` is a reference to a specific one of these Lua objects.  This is important, as two *different* Lua objects that are both wrappers for the *same* CLR object will not be equal in Lua.  Opaque CLR objects are just that -- opaque.  If it is important that the same opaque CLR object be considered equal in Lua code then all Lua objects that reference the CLR object must be the same actual Lua object.  `LuaOpaqueClrObjectReference` is provided for this purpose.
+`LuaClrObjectValue` is the base type for wrappers around CLR objects.  Eluant will ensure that CLR objects are not eligible for garbage collection in the CLR until all Lua values referencing them are released.  The different subtypes all have different semantics with regards to how Lua code can interact with the CLR object.  See the section "Exposing CLR Objects to Lua" for more information.
 
-Eluant will ensure that Lua objects referencing CLR objects will keep the corresponding CLR object alive for as long as they exist.
+`LuaClrObjectReference` refers to a specific instance of a Lua value that wraps a CLR object.  This allows you to give Lua not only a wrapper object that is equivalent to the one it already has, but the exact same wrapper object it already has.  All Lua wrappers around CLR objects that are given to CLR code as a `LuaValue` will be instances of this type, which gives you access to the Eluant wrapper object as well as directly to the CLR object contained in the Eluant wrapper object.
 
-Note that opaque CLR objects returned out of Lua code will always be `LuaOpaqueClrObjectReference` objects, never `LuaOpaqueClrObject`.  `LuaOpaqueClrObject` should be considered an "input only" class; it will never be output from Eluant.
+The `IClrObject` interface is provided as a way for code to generically accept any of the Eluant types that wrap CLR objects without caring which one was used to provide the object to Lua.  All Eluant wrapper types that correspond to a CLR object implement this interface.
 
 `LuaWeakReference<T>` implements weak references to Lua objects.  See the section "Weak CLR References to Lua Objects" for details.
 
@@ -234,10 +237,83 @@ If the delegate throws any other type of exception, then a summary message with 
 
 In both cases, Eluant will dispose of any Lua references passed to the delegate (in a `LuaVararg` or as formal arguments), just as it would upon successful termination of the delegate.
 
+Exposing CLR Objects to Lua
+===========================
+
+There are three distinct ways that CLR objects can be presented to Lua.
+
+All CLR objects exposed to Lua through any of these mechanisms will kept alive with a strong reference in the CLR automatically.  This reference is released when the Lua garbage collector finalizes the corresponding Lua value.
+
+Opaque CLR Objects
+------------------
+
+An opaque object (`LuaOpaqueClrObject`) is intended to allow Lua code to pass the object back to managed code while not allowing Lua code to mutate or inspect the object in any meaningful way by itself.  Such inspection or mutation can only be implemented for opaque objects by giving Lua code access to managed methods that perform that inspection or mutation.
+
+Opaque objects cannot be manipulated directly from Lua.  Lua will receive a Lua userdata value with no user-accessible members or metamethods.  As these values are opaque, two different Lua values that wrap the same CLR object will not compare as equal.  This is intentional.
+
+If a null CLR object reference is wrapped, it will become a Lua userdata value as with any other CLR object.  Lua code will be unable to determine if this value represents a null CLR object.  As with non-null objects, two different wrapper values around the null CLR object will not compare as equal.
+
+Custom CLR Objects
+------------------
+
+A custom object is one implementing one or more of the metamethod binding interfaces.  The methods of these interfaces will be called when Lua code invokes the corresponding metamethod of the object.  This allows for completely custom object behaviors.
+
+Like opaque CLR objects, two different Lua values wrapping the same CLR object will not compare as equal by default.  However, one can implement the `ILuaEqualityBinding` interface to provide custom equality logic.
+
+Unlike opaque CLR objects, if a null CLR object reference is given to Lua as a custom object, Lua will receive it as `nil`.
+
+Eluant supports all Lua metamethods via the following interfaces, which exist in the `Eluant.ObjectBinding` namespace:
+
++ `ILuaAdditionBinding` (`__add`)
++ `ILuaCallBinding` (`__call`)
++ `ILuaConcatenationBinding` (`__concat`)
++ `ILuaDivisionBinding` (`__div`)
++ `ILuaEqualityBinding` (`__eq`)
++ `ILuaExponentiationBinding` (`__pow`)
++ `ILuaFinalizedBinding` (`__gc`)
++ `ILuaLengthBinding` (`__len`)
++ `ILuaLessThanBinding` (`__lt`)
++ `ILuaLessThanOrEqualToBinding` (`__le`)
++ `ILuaModuloBinding` (`__mod`)
++ `ILuaMultiplicationBinding` (`__mul`)
++ `ILuaSubtractionBinding` (`__sub`)
++ `ILuaTableBinding` (`__index` and `__newindex`)
++ `ILuaUnaryMinusBinding` (`__unm`)
+
+Note that methods of interfaces for binary operators (addition, subtraction, etc.) take two arguments, not one.  This is because the custom object is not always guaranteed to be the first object.  For example, if `o` is a custom CLR object then the expression `2 - o` will invoke the `__add` metamethod of the CLR object, but the CLR object will be the right-side operand.  Binary operator methods should generally not reference the object on which they are invoked, but should evaluate only their arguments.  (In other words, binary operator methods should be implemented as though they were static.)
+
+For convenience, there is also an interface `ILuaMathBinding` that inherits all of the metamethod interfaces that would be useful when implementing custom math logic: `ILuaAdditionBinding`, `ILuaDivisionBinding`, `ILuaEqualityBinding`, `ILuaExponentiationBinding`, `ILuaLessThanBinding`, `ILuaLessThanOrEqualToBinding`, `ILuaModuloBinding`, `ILuaMultiplicationBinding`, `ILuaSubtractionBinding`, and `ILuaUnaryMinusBinding`.
+
+Any exceptions raised from `ILuaFinalizedBinding.Finalize()` are ignored.  Any exceptions raised from any other metamethod interface method will result in a Lua error being raised in the calling code.
+
+Transparent CLR Objects
+-----------------------
+
+A transparent object given to Lua code will allow Lua to directly invoke its methods and read and/or write to its properties and fields.  Access to specific members is governed by `IBindingSecurityPolicy`.
+
+Two different Lua values that refer to the same transparent CLR object will compare as equal.  A null CLR object reference will be given to Lua as `nil`.
+
+An attempt to access a member that does not exist on the CLR object will result in a `nil` value being returned to Lua.  An attempt to write to a member that either does not exist or is not a property or field will result in an error being raised in Lua.  (Note that the "return `nil`" behavior on retrieving values of members that don't exist means that one cannot distinguish between the cases where the object does not have that member, or the object's member's value is marshalled as `nil`.  However, this allows Lua code to test for the presence of features without needing to use `pcall()` and is more in line with common Lua coding styles.)
+
+There are some rules regarding which members can be accessed from Lua code.
+
+* Only public members marked with `LuaMemberAttribute` can be accessed.
+* Indexers cannot be accessed.  Lua syntax does not distinguish between member and index look-up, as both are equivalent.  (`x.y` means the same thing as `x['y']`.)  In particular, if the CLR object defines an indexer taking one string argument, every member access from the Lua side has the potential to be ambiguous, and there is no clear way that ambiguity can be resolved.
+* Open generic methods cannot be accessed.  For arguments of a generic type, there may be multiple options for a given Lua value.  (Should a string be passed as `LuaString` or `String`, for example?)  If the only reference to a generic type is the return value, Lua has no syntax for expressing what that type should be.  (Closed generic methods -- methods of a generic type that are not themselves generic -- are acceptable as their argument and return types are fully known.)
+* Methods cannot be overloaded.  This restriction may be removed in a future release, once a set of overload-resolution rules is determined.  To provide the illusion of an overloaded method, declare the method to accept `LuaVararg` and inspect the arguments.
+
+The default constructor of `LuaMemberAttribute` causes the member to be visible to Lua code using the same name as the member itself.  The attribute has a string constructor that can be used to override this name.  The attribute can be specified multiple times to make the member visible to Lua code under multiple names.
+
+Because functions are first-class values in Lua, when the Lua code `x.y()` is executed, this looks up the `y` member of `x` and then attempts to invoke it.  Eluant responds to this by creating a proxy function when a method is "read" from Lua code.  It is also possible for Lua code to store functions for later execution (`z = x.y`).  Eluant makes sure that each Lua function representing a method holds a strong reference to the CLR object the method is declared on.
+
+All of the same rules in the section "Exposing CLR Functions to Lua" also apply to Lua functions representing methods of CLR objects including argument handling, return value handling, and exception handling.
+
+Note that one can implement a custom `ILuaBinder`, which allows you to alter the logic used to map member names to members, and the logic used to convert CLR values and objects to Lua values.  A custom `IBindingSecurityPolicy` will let you customize the logic for determining which members should be Lua-accessible.  (The default security policy denies access to all members not marked with `LuaMemberAttribute`.)
+
 Coroutine Support
 =================
 
-Lua supports coroutines, and Eluant does not place any restrictions on the use of coroutines from within Lua.  However, due to complexities in the runtime Eluant does not allow Lua to call a CLR delegate while executing a coroutine.  This will cause a Lua error, and the delegate will not be called.  All interaction with the CLR must be from the main Lua thread.
+Lua supports coroutines, and Eluant does not place any restrictions on the use of coroutines from within Lua.  However, due to complexities in the runtime Eluant does not allow Lua to call into the CLR while executing a coroutine.  This will cause a Lua error.  All interaction with the CLR must be from the main Lua thread.
 
 This restriction may be lifted at a future date if the design issues surrounding coroutines can be solved.
 

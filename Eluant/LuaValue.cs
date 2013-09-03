@@ -45,6 +45,17 @@ namespace Eluant
         }
 
         public abstract bool Equals(LuaValue other);
+
+        internal virtual object ToClrType(Type type)
+        {
+            if (type == null) { throw new ArgumentNullException("type"); }
+
+            if (type.IsAssignableFrom(GetType())) {
+                return this;
+            }
+
+            throw new ArgumentException("Cannot convert to the specified type.");
+        }
     }
 }
 

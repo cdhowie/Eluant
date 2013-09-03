@@ -2,33 +2,13 @@ using System;
 
 namespace Eluant
 {
-    public sealed class LuaOpaqueClrObject : LuaValueType, IEquatable<LuaOpaqueClrObject>
+    public sealed class LuaOpaqueClrObject : LuaClrObjectValue, IEquatable<LuaOpaqueClrObject>
     {
-        public object ClrObject { get; private set; }
-
-        public LuaOpaqueClrObject(object obj)
-        {
-            ClrObject = obj;
-        }
-
-        public override bool ToBoolean()
-        {
-            return ClrObject != null;
-        }
-
-        public override double? ToNumber()
-        {
-            return null;
-        }
-
-        public override string ToString()
-        {
-            return string.Format("[LuaOpaqueClrObject: ClrObject={0}]", ClrObject);
-        }
+        public LuaOpaqueClrObject(object obj) : base(obj) { }
 
         internal override void Push(LuaRuntime runtime)
         {
-            runtime.PushOpaqueClrObject(ClrObject);
+            runtime.PushOpaqueClrObject(this);
         }
 
         public override bool Equals(LuaValue other)
@@ -39,6 +19,11 @@ namespace Eluant
         public bool Equals(LuaOpaqueClrObject obj)
         {
             return obj != null && obj.ClrObject == ClrObject;
+        }
+
+        internal override object BackingCustomObject
+        {
+            get { return null; }
         }
     }
 }

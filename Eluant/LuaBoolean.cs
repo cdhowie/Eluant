@@ -78,6 +78,15 @@ namespace Eluant
             return Value ? "true" : "false";
         }
 
+        internal override object ToClrType(Type type)
+        {
+            if (type == typeof(bool)) {
+                return Value;
+            }
+
+            return base.ToClrType(type);
+        }
+
         public static implicit operator LuaBoolean(bool v)
         {
             return Get(v);

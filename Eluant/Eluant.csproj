@@ -46,7 +46,6 @@
     <Compile Include="LuaVararg.cs" />
     <Compile Include="LuaException.cs" />
     <Compile Include="LuaLightUserdata.cs" />
-    <Compile Include="LuaOpaqueClrObjectReference.cs" />
     <Compile Include="LuaOpaqueClrObject.cs" />
     <Compile Include="LuaUserdata.cs" />
     <Compile Include="Scripts.cs" />
@@ -60,6 +59,21 @@
     </Compile>
     <Compile Include="LuaThread.cs" />
     <Compile Include="LuaGlobalsTable.cs" />
+    <Compile Include="ObjectBinding\IBindingSecurityPolicy.cs" />
+    <Compile Include="ObjectBinding\MemberSecurityPolicy.cs" />
+    <Compile Include="ObjectBinding\BasicBindingSecurityPolicy.cs" />
+    <Compile Include="ObjectBinding\CombinedBindingSecurityPolicy.cs" />
+    <Compile Include="ObjectBinding\LuaMemberAttribute.cs" />
+    <Compile Include="LuaTransparentClrObject.cs" />
+    <Compile Include="ObjectBinding\ILuaBinder.cs" />
+    <Compile Include="ObjectBinding\MetamethodAttribute.cs" />
+    <Compile Include="ObjectBinding\Bindings.cs" />
+    <Compile Include="IClrObject.cs" />
+    <Compile Include="LuaClrObjectValue.cs" />
+    <Compile Include="LuaCustomClrObject.cs" />
+    <Compile Include="LuaClrObjectReference.cs" />
+    <Compile Include="ObjectBinding\BasicLuaBinder.cs" />
+    <Compile Include="ObjectBinding\IBindingContext.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>
@@ -70,5 +84,8 @@
       <Generator>TextTemplatingFileGenerator</Generator>
       <LastGenOutput>LuaNumberOperators.cs</LastGenOutput>
     </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="ObjectBinding\" />
   </ItemGroup>
 </Project>

@@ -35,6 +35,15 @@ namespace Eluant
             return Value;
         }
 
+        internal override object ToClrType(Type type)
+        {
+            if (type == typeof(string)) {
+                return Value;
+            }
+
+            return base.ToClrType(type);
+        }
+
         public override bool Equals(LuaValue other)
         {
             return Equals(other as LuaString);
