@@ -35,6 +35,7 @@ namespace Eluant
 {
     public class LuaRuntime : IDisposable
     {
+        [UnmanagedFunctionPointer(LuaApi.LUA_CALLING_CONVENTION)]
         protected internal delegate IntPtr LuaAllocator(IntPtr ud, IntPtr ptr, IntPtr osize, IntPtr nsize);
 
         protected internal IntPtr LuaState { get; private set; }
