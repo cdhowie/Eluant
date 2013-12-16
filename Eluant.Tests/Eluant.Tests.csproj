@@ -50,5 +50,6 @@
     <Compile Include="MemoryConstraint.cs" />
     <Compile Include="Runtime.cs" />
     <Compile Include="Tables.cs" />
+    <Compile Include="TransparentBinding.cs" />
   </ItemGroup>
 </Project>
