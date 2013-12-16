@@ -37,9 +37,28 @@ namespace Eluant
 {
     public class LuaRuntime : IDisposable
     {
+        // These are our only two callbacks.  They need to be static methods for iOS, where the runtime cannot create C
+        // function pointers from instance methods.
+        private static readonly LuaApi.lua_CFunction clrObjectGcCallbackWrapper;
+        private static readonly LuaApi.lua_CFunction methodWrapperCallCallbackWrapper;
+
+        static LuaRuntime()
+        {
+            clrObjectGcCallbackWrapper = ClrObjectGcCallbackWrapper;
+            methodWrapperCallCallbackWrapper = MethodWrapperCallCallbackWrapper;
+        }
+
         protected internal delegate IntPtr LuaAllocator(IntPtr ud, IntPtr ptr, IntPtr osize, IntPtr nsize);
 
         protected internal IntPtr LuaState { get; private set; }
+
+        // A self-referential weak handle used by the static callback methods to locate the LuaRuntime instance.
+        private GCHandle selfHandle;
+
+        protected GCHandle SelfHandle
+        {
+            get { return selfHandle; }
+        }
 
         private ObjectReferenceManager<LuaClrObjectValue> objectReferenceManager = new ObjectReferenceManager<LuaClrObjectValue>();
 
@@ -51,13 +70,9 @@ namespace Eluant
         private const string REFERENCES_KEY = "eluant_references";
 
         private const string WEAKREFERENCE_METATABLE = "eluant_weakreference";
-
         private const string OPAQUECLROBJECT_METATABLE = "eluant_opaqueclrobject";
-        private LuaApi.lua_CFunction clrObjectGcCallback;
 
         private Dictionary<string, LuaFunction> metamethodCallbacks = new Dictionary<string, LuaFunction>();
-
-        private LuaApi.lua_CFunction methodWrapperCallCallback;
 
         private LuaFunction createManagedCallWrapper;
 
@@ -65,20 +80,28 @@ namespace Eluant
 
         public LuaRuntime()
         {
-            customAllocator = CreateAllocatorDelegate();
+            try {
+                selfHandle = GCHandle.Alloc(this, GCHandleType.WeakTrackResurrection);
 
-            if (customAllocator != null) {
-                hasCustomAllocator = true;
-                //LuaState = LuaApi.luaL_newstate();
-                LuaState = LuaApi.lua_newstate(customAllocator, IntPtr.Zero);
-            } else {
-                hasCustomAllocator = false;
-                LuaState = LuaApi.luaL_newstate();
+                IntPtr customState;
+                customAllocator = CreateAllocatorDelegate(out customState);
+
+                if (customAllocator != null) {
+                    hasCustomAllocator = true;
+                    //LuaState = LuaApi.luaL_newstate();
+                    LuaState = LuaApi.lua_newstate(customAllocator, customState);
+                } else {
+                    hasCustomAllocator = false;
+                    LuaState = LuaApi.luaL_newstate();
+                }
+
+                Globals = new LuaGlobalsTable(this);
+
+                Initialize();
+            } catch {
+                Dispose();
+                throw;
             }
-
-            Globals = new LuaGlobalsTable(this);
-
-            Initialize();
         }
 
         // This is to support accounting (see MemoryConstrainedLuaRuntime).  Returning a delegate is wonky, but there
@@ -90,8 +113,9 @@ namespace Eluant
         // 2. Abstract method means that LuaRuntime is abstract, and subclasses MUST implement their own allocator.
         //
         // So instead we have a method that returns a delegate, and a null return value means use the default allocator.
-        protected virtual LuaAllocator CreateAllocatorDelegate()
+        protected virtual LuaAllocator CreateAllocatorDelegate(out IntPtr customState)
         {
+            customState = IntPtr.Zero;
             return null;
         }
 
@@ -130,6 +154,20 @@ namespace Eluant
             }
         }
 
+        protected void PushSelf()
+        {
+            var ud = LuaApi.lua_newuserdata(LuaState, new UIntPtr(unchecked((ulong)IntPtr.Size)));
+            Marshal.WriteIntPtr(ud, (IntPtr)selfHandle);
+        }
+
+        protected static LuaRuntime GetSelf(IntPtr state, int index)
+        {
+            var ud = LuaApi.lua_touserdata(state, index);
+            var handle = (GCHandle)Marshal.ReadIntPtr(ud);
+
+            return handle.Target as LuaRuntime;
+        }
+
         private void Initialize()
         {
             PreInitialize();
@@ -142,12 +180,11 @@ namespace Eluant
             LuaApi.lua_pushlightuserdata(LuaState, LuaState);
             LuaApi.lua_setfield(LuaState, LuaApi.LUA_REGISTRYINDEX, MAIN_THREAD_KEY);
 
-            clrObjectGcCallback = ClrObjectGcCallback;
-
             LuaApi.luaL_newmetatable(LuaState, OPAQUECLROBJECT_METATABLE);
 
             LuaApi.lua_pushstring(LuaState, "__gc");
-            LuaApi.lua_pushcfunction(LuaState, clrObjectGcCallback);
+            PushSelf();
+            LuaApi.lua_pushcclosure(LuaState, clrObjectGcCallbackWrapper, 1);
             LuaApi.lua_settable(LuaState, -3);
 
             LuaApi.lua_pushstring(LuaState, "__metatable");
@@ -173,8 +210,6 @@ namespace Eluant
             createManagedCallWrapper = (LuaFunction)Globals["eluant_create_managed_call_wrapper"];
 
             Globals["eluant_create_managed_call_wrapper"] = null;
-
-            methodWrapperCallCallback = MethodWrapperCallCalback;
 
             metamethodCallbacks["__newindex"] = CreateCallbackWrapper(NewindexCallback);
             metamethodCallbacks["__index"] = CreateCallbackWrapper(IndexCallback);
@@ -233,6 +268,10 @@ namespace Eluant
                     LuaApi.lua_close(LuaState);
                     LuaState = IntPtr.Zero;
                 }
+            }
+
+            if (selfHandle.IsAllocated) {
+                selfHandle.Free();
             }
         }
 
@@ -690,7 +729,8 @@ namespace Eluant
                 // __gc is required to clean up the reference.  The callback will determine if it implements the
                 // interface.
                 LuaApi.lua_pushstring(LuaState, "__gc");
-                LuaApi.lua_pushcfunction(LuaState, clrObjectGcCallback);
+                PushSelf();
+                LuaApi.lua_pushcclosure(LuaState, clrObjectGcCallbackWrapper, 1);
                 LuaApi.lua_settable(LuaState, -3);
 
                 // For all others, we use MetamethodAttribute on the interface to make this code less repetitive.
@@ -854,6 +894,20 @@ namespace Eluant
             return (LuaClrObjectReference)wrap;
         }
 
+#if (__IOS__ || MONOTOUCH)
+        [MonoTouch.MonoPInvokeCallback(typeof(LuaApi.lua_CFunction))]
+#endif
+        private static int ClrObjectGcCallbackWrapper(IntPtr state)
+        {
+            var runtime = GetSelf(state, LuaApi.lua_upvalueindex(1));
+
+            // If it's null then the runtime has already been finalized.  In that case, all objects are already eligible
+            // for collection anyway and we can just do nothing.
+            if (runtime == null) { return 0; }
+
+            return runtime.ClrObjectGcCallback(state);
+        }
+
         private int ClrObjectGcCallback(IntPtr state)
         {
             // Don't CheckDisposed() here... we were called from Lua, so lua_close() could not have been called yet.
@@ -924,7 +978,27 @@ namespace Eluant
             return null;
         }
 
-        private int MethodWrapperCallCalback(IntPtr state)
+#if (__IOS__ || MONOTOUCH)
+        [MonoTouch.MonoPInvokeCallback(typeof(LuaApi.lua_CFunction))]
+#endif
+        private static int MethodWrapperCallCallbackWrapper(IntPtr state)
+        {
+            var runtime = GetSelf(state, LuaApi.lua_upvalueindex(1));
+
+            if (runtime == null) {
+                // Runtime has been finalized.  We are in dangerous territory.  If the runtime is memory-constrained we
+                // could fail an allocation and longjmp just by allocating an error message.
+                //
+                // However, Lua code shouldn't even be running now, as there is no handle to the runtime.  So just
+                // return nothing at all.  This will be seen as an error by the bindings, but without any error message.
+
+                return 0;
+            }
+
+            return runtime.MethodWrapperCallCallback(state);
+        }
+
+        private int MethodWrapperCallCallback(IntPtr state)
         {
             // We need to do this check as early as possible to avoid using the wrong state pointer.
             {
@@ -934,7 +1008,7 @@ namespace Eluant
 
             OnEnterClr();
             try {
-                var wrapper = (MethodWrapper)(GetClrObject<LuaClrObjectValue>(LuaApi.lua_upvalueindex(1)).ClrObject);
+                var wrapper = (MethodWrapper)(GetClrObject<LuaClrObjectValue>(LuaApi.lua_upvalueindex(2)).ClrObject);
 
                 return MakeManagedCall(state, wrapper);
             } finally {
@@ -960,8 +1034,9 @@ namespace Eluant
             try {
                 Push(createManagedCallWrapper);
 
+                PushSelf();
                 Push(new LuaOpaqueClrObject(wrapper));
-                LuaApi.lua_pushcclosure(LuaState, methodWrapperCallCallback, 1);
+                LuaApi.lua_pushcclosure(LuaState, methodWrapperCallCallbackWrapper, 2);
 
                 if (LuaApi.lua_pcall(LuaState, 1, 1, 0) != 0) {
                     throw new InvalidOperationException("Unable to create wrapper function.");
