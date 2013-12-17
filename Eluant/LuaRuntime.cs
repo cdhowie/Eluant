@@ -41,11 +41,13 @@ namespace Eluant
         // function pointers from instance methods.
         private static readonly LuaApi.lua_CFunction clrObjectGcCallbackWrapper;
         private static readonly LuaApi.lua_CFunction methodWrapperCallCallbackWrapper;
+        private static readonly LuaApi.lua_CFunction cFunctionCallback;
 
         static LuaRuntime()
         {
             clrObjectGcCallbackWrapper = ClrObjectGcCallbackWrapper;
             methodWrapperCallCallbackWrapper = MethodWrapperCallCallbackWrapper;
+            cFunctionCallback = CFunctionCallback;
         }
 
         [UnmanagedFunctionPointer(LuaApi.LUA_CALLING_CONVENTION)]
@@ -139,11 +141,7 @@ namespace Eluant
 
             try {
                 Push(createManagedCallWrapper);
-
-                // Keep the delegate object alive!  We won't be destroying this reference so we don't need to record the
-                // reference identifier.
-                objectReferenceManager.CreateReference(new LuaOpaqueClrObject(callback));
-                LuaApi.lua_pushcfunction(LuaState, callback);
+                PushCFunction(callback);
 
                 if (LuaApi.lua_pcall(LuaState, 1, 1, 0) != 0) {
                     throw new InvalidOperationException("Unable to create delegate wrapper.");
@@ -694,6 +692,35 @@ namespace Eluant
             return objectReferenceManager.GetReference(reference.Value) as T;
         }
 
+        // This provides a general-purpose mechanism to push C functions into Lua without needing an instance method
+        // (for iOS support).
+        internal void PushCFunction(LuaApi.lua_CFunction fn)
+        {
+            PushSelf();
+            PushOpaqueClrObject(new LuaOpaqueClrObject(fn));
+            LuaApi.lua_pushcclosure(LuaState, cFunctionCallback, 2);
+        }
+        
+#if (__IOS__ || MONOTOUCH)
+        [MonoTouch.MonoPInvokeCallback(typeof(LuaApi.lua_CFunction))]
+#endif
+        private static int CFunctionCallback(IntPtr state)
+        {
+            LuaApi.lua_CFunction fn;
+            try {
+                var runtime = GetSelf(state, LuaApi.lua_upvalueindex(1));
+
+                fn = (LuaApi.lua_CFunction)runtime.TryGetClrObject<LuaOpaqueClrObject>(LuaApi.lua_upvalueindex(2)).ClrObject;
+            } catch {
+                LuaApi.lua_pushboolean(state, 0);
+                LuaApi.lua_pushstring(state, "Unexpected error processing callback.");
+
+                return 2;
+            }
+
+            return fn(state);
+        }
+
         internal void PushOpaqueClrObject(LuaOpaqueClrObject obj)
         {
             // We don't check for null, intentionally.
@@ -987,11 +1014,9 @@ namespace Eluant
             var runtime = GetSelf(state, LuaApi.lua_upvalueindex(1));
 
             if (runtime == null) {
-                // Runtime has been finalized.  We are in dangerous territory.  If the runtime is memory-constrained we
-                // could fail an allocation and longjmp just by allocating an error message.
-                //
-                // However, Lua code shouldn't even be running now, as there is no handle to the runtime.  So just
-                // return nothing at all.  This will be seen as an error by the bindings, but without any error message.
+                // The runtime doesn't exist, so Lua code shouldn't even be running now, Just return nothing at all.
+                // This will be seen as an error by the bindings (assuming the bindings even still exist in memory), but
+                // without any error message.
 
                 return 0;
             }
