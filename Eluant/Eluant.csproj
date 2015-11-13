@@ -74,6 +74,7 @@
     <Compile Include="LuaClrObjectReference.cs" />
     <Compile Include="ObjectBinding\BasicLuaBinder.cs" />
     <Compile Include="ObjectBinding\IBindingContext.cs" />
+    <Compile Include="ByteArrayEqualityComparer.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>
